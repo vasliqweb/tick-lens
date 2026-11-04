@@ -370,7 +370,11 @@ function onPanelClick(e) {
   if (a === "pick") app.pick(t.symbol);
   else if (a === "eye") act(t, () => api(`/trades/${t.id}`, { method: "PATCH", body: { show: !t.show } }));
   else if (a === "sl" || a === "target" || a === "exitLimit") modify(t, a);
-  else if (a === "exit") exitMarket(t);
+  else if (a === "exit") {
+    if (!document.body.classList.contains("m")) exitMarket(t);       // phones: confirm first (easy to mis-tap)
+    else LTVSettings.confirm(`${t.status === "pending" ? "Cancel" : "Exit"} ${label(t)}${t.status === "pending" ? "" : " at market"}?`,
+      { title: t.status === "pending" ? "Cancel order" : "Exit trade", ok: t.status === "pending" ? "Cancel order" : "Exit", danger: true }).then((ok) => ok && exitMarket(t));
+  }
   else if (a === "del") api(`/trades/${t.id}`, { method: "DELETE" }).then(reload).catch((ex) => app.toast(ex.message));
 }
 
@@ -437,6 +441,7 @@ side.pane("trades")?.addEventListener("click", onPanelClick);
 
 window.LTVTrade = {
   openTicket, linesFor, setLevel, onQuotes, render, reload, stick, quick,
+  open: () => trades.filter((t) => t.status === "open" || t.status === "pending"), pnlOf, money,
   symbols: () => [...new Set(trades.filter((t) => t.status === "open" || t.status === "pending").flatMap((t) => [t.symbol, t.under].filter(Boolean)))],
 };
 reload().then(migrateOldOrders).then(() => app.sendWatch());

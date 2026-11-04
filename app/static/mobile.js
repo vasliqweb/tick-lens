@@ -317,6 +317,65 @@ window.addEventListener("pointermove", (e) => {
 const loupeOff = () => { lp = null; loupe.classList.remove("on"); };
 window.addEventListener("pointerup", loupeOff, true); window.addEventListener("pointercancel", loupeOff, true);
 
+// ------------------------------------------------------------------ paper trading: positions strip, Buy / Sell bar, ticket steppers, swipe to exit
+const TR = () => window.LTVTrade;
+const strip = document.createElement("div");
+strip.id = "mPos"; strip.className = "hidden";
+$("#layout").after(strip);
+function paintStrip() {
+  if (!isM() || !TR()?.open) return;
+  const open = TR().open(), money = TR().money;
+  strip.classList.toggle("hidden", !open.length);
+  if (!open.length) { strip.innerHTML = ""; window.dispatchEvent(new Event("resize")); return; }
+  const tot = open.reduce((s, t) => s + (TR().pnlOf(t) || 0), 0), c = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "");
+  const chips = open.slice(0, 6).map((t) => { const p = TR().pnlOf(t);
+    return `<span class="m-pc" data-sym="${app.esc(t.symbol)}"><b class="${t.side === "buy" ? "up" : "dn"}">${t.side === "buy" ? "B" : "S"}</b> ${app.esc(t.symbol)} <i class="${c(p)}">${p == null ? (t.status === "pending" ? "LMT" : "–") : money(p)}</i></span>`; }).join("");
+  const was = strip.dataset.n;
+  strip.innerHTML = `<button class="m-pos-sum" title="Open paper trades"><small>${open.length} open</small><b class="${c(tot)}">${money(tot)}</b></button><div class="m-pos-list">${chips}</div>`;
+  if (was !== String(open.length)) { strip.dataset.n = open.length; window.dispatchEvent(new Event("resize")); }
+}
+setInterval(paintStrip, 1000);
+strip.onclick = (e) => {
+  const chip = e.target.closest(".m-pc");
+  if (chip && chip.dataset.sym !== app.A().S.symbol) { app.pick(chip.dataset.sym); return; }
+  openSide("trades");
+};
+// Buy / Sell bar at the bottom of the trades sheet
+{
+  const pane = side.pane("trades");
+  if (pane) {
+    const bar = document.createElement("div");
+    bar.className = "m-tradebar";
+    bar.innerHTML = '<button data-s="sell" class="m-sell">Sell</button><button data-s="buy" class="m-buy">Buy</button>';
+    pane.appendChild(bar);
+    bar.onclick = (e) => {
+      const b = e.target.closest("[data-s]"); if (!b) return;
+      closeAll(); TR()?.openTicket();
+      requestAnimationFrame(() => $(`dialog.pt-dlg[open] .pt-side [data-v="${b.dataset.s}"]`)?.click());
+    };
+    // swipe a trade row left to exit / cancel it (asks to confirm)
+    let sw = null;
+    pane.addEventListener("pointerdown", (e) => { const r = e.target.closest(".pt-row.open, .pt-row.pending"); if (isM() && r) sw = { r, x: e.clientX, y: e.clientY, dx: 0 }; });
+    pane.addEventListener("pointermove", (e) => {
+      if (!sw) return;
+      sw.dx = Math.min(0, e.clientX - sw.x);
+      if (Math.abs(e.clientY - sw.y) > 30 && sw.dx > -20) { sw.r.style.transform = ""; sw = null; return; }
+      sw.r.style.transform = `translateX(${sw.dx}px)`; sw.r.classList.toggle("m-swipe", sw.dx < -80);
+    });
+    const end = () => {
+      if (!sw) return;
+      const { r, dx } = sw; sw = null;
+      r.style.transform = ""; r.classList.remove("m-swipe");
+      if (dx < -80) r.querySelector('[data-a="exit"]')?.click();
+    };
+    pane.addEventListener("pointerup", end); pane.addEventListener("pointercancel", end);
+  }
+}
+// ticket / modify dialogs: steppers on lots, SL, target, limit
+new MutationObserver((ms) => {
+  for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.matches?.("dialog.pt-dlg, dialog")) stepperize(n);
+}).observe(document.body, { childList: true });
+
 // ------------------------------------------------------------------ on / off
 function apply() {
   const on = MQ.matches;
@@ -328,6 +387,9 @@ function apply() {
 }
 MQ.addEventListener?.("change", apply);
 apply();
+
+// installable app: the service worker only registers on https or localhost (browsers require a secure origin)
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 window.LTVMobile = { isM, closeAll, openSide, openSheet, store, keep, I, stepperize, get cur() { return cur; } };
 })();

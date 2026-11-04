@@ -733,3 +733,32 @@ body.m #mLoupe { display: block; position: fixed; z-index: 90; width: 120px; hei
 body.m #mLoupe.on { opacity: 1; }
 body.m #drawFloat, body.m .draw-float { font-size: 14px; }
 body.m #drawFloat button, body.m #drawFloat select, body.m #drawFloat input { min-height: 36px; min-width: 36px; }
+/* mobile: paper trading */
+#mPos { display: none; }
+body.m #mPos { display: flex; align-items: center; gap: 8px; flex-shrink: 0; height: 40px; padding: 0 8px; border-top: 1px solid var(--border); background: var(--panel); overflow: hidden; }
+body.m #mPos.hidden { display: none; }
+#mPos .m-pos-sum { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; padding: 2px 8px; flex-shrink: 0; }
+#mPos .m-pos-sum small { color: var(--muted); font-size: 10px; }
+#mPos .m-pos-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+#mPos .m-pos-list::-webkit-scrollbar { display: none; }
+#mPos .m-pc { white-space: nowrap; font-size: 12px; padding: 4px 8px; border-radius: 14px; background: var(--panel2); }
+#mPos .m-pc i { font-style: normal; margin-left: 4px; }
+#mPos .up { color: var(--up); } #mPos .dn { color: var(--down); }
+.m-tradebar { display: none; }
+body.m .m-tradebar { display: flex; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
+body.m .m-tradebar button { flex: 1; padding: 13px 0; font-size: 16px; font-weight: 700; border-radius: 10px; color: #fff; }
+body.m .m-buy { background: #089981; } body.m .m-sell { background: #f23645; }
+body.m .pt-row { padding: 12px; transition: transform .15s; touch-action: pan-y; }
+body.m .pt-row.m-swipe { background: rgba(242, 54, 69, .15); }
+body.m .pt-acts button { font-size: 14px; padding: 8px 14px; }
+body.m .pt-chips i { padding: 4px 8px; font-size: 12px; }
+body.m .pt-dlg .srow { flex-wrap: wrap; padding: 7px 0; font-size: 14px; }
+body.m .pt-dlg .srow > .ctl { flex: 1 1 100%; justify-content: flex-start; flex-wrap: wrap; }
+body.m .pt-dlg .seg button { padding: 10px 12px; font-size: 14px; }
+body.m .pt-dlg .pt-side button { padding: 12px 0; font-size: 16px; font-weight: 700; flex: 1; }
+body.m .pt-dlg .pt-side { display: flex; flex: 1; }
+body.m .pt-dlg .pt-go { min-height: 46px; font-size: 16px; padding: 0 28px; }
+body.m .pt-dlg .m-step > input { width: 64px !important; }
+body.m .pt-dlg .pt-body { overflow-y: auto; min-height: 0; }
+body.m .m-step:has(> input.hidden) { display: none; }
+body.m #stickyAlerts { left: auto; right: 8px; bottom: calc(var(--m-tab) + 50px); width: min(330px, calc(100vw - 16px)); max-height: 30vh; overflow-y: auto; }
