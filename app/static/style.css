@@ -623,3 +623,79 @@ button.primary.danger { background: var(--down); }
 
 .in-help { display: block; margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; background: rgba(41,98,255,.1); color: #2962ff; text-decoration: none; font-weight: 600; }
 .in-help:hover { background: rgba(41,98,255,.18); }
+
+/* ================================================================== mobile layer (static/mobile.js adds body.m on phones) */
+body:not(.m) #mTabs, body:not(.m) #mScrim, body:not(.m) #mSheet, body:not(.m) #mTfBtn, body:not(.m) .m-grab { display: none !important; }
+body.m { --m-tab: calc(56px + env(safe-area-inset-bottom)); padding-bottom: var(--m-tab); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+body.m #topbar { height: calc(46px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 6px 0; gap: 2px; }
+body.m #topbar > :not(.logo):not(#symbolBtn):not(#mTfBtn):not(.spacer):not(#bzBtn) { display: none !important; }
+body.m #topbar .logo { margin-right: 2px; }
+body.m #symbolBtn { min-width: 0; max-width: 52vw; padding: 6px 10px; border-radius: 18px; background: var(--panel2); font-size: 15px; }
+body.m #symbolBtn #symText { overflow: hidden; text-overflow: ellipsis; }
+body.m #mTfBtn { display: inline-flex; align-items: center; gap: 3px; padding: 6px 10px; font-weight: 700; font-size: 14px; border-radius: 18px; }
+body.m #mTfBtn small { color: var(--muted); font-size: 10px; }
+body.m #bzBtn span { display: none; }
+body.m #bzBtn { padding: 8px 10px; }
+body.m #drawBar, body.m #rail, body.m #wlResize { display: none !important; }
+body.m #layout { min-height: 0; }
+body.m #chartWrap { touch-action: none; }
+body.m #rangeBar { overflow-x: auto; scrollbar-width: none; }
+body.m #rangeBar::-webkit-scrollbar { display: none; }
+body.m #legend { max-width: calc(100% - 70px); }
+body.m .lg-ind button { opacity: .85; padding: 2px 7px; font-size: 13px; pointer-events: auto; }
+
+/* bottom tab bar */
+body.m #mTabs { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 80; height: var(--m-tab); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--panel); border-top: 1px solid var(--border); }
+#mTabs button { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 0; color: var(--muted); font-size: 11px; padding: 4px 0; }
+#mTabs button.on { color: var(--accent); }
+#mTabs button:hover { background: transparent; }
+
+/* scrim + sheets (generic #mSheet and the sidebar #watchlist host) */
+body.m #mScrim { display: block; position: fixed; inset: 0 0 var(--m-tab) 0; z-index: 60; background: rgba(0, 0, 0, .45); opacity: 0; pointer-events: none; transition: opacity .2s; }
+body.m #mScrim.m-on { opacity: 1; pointer-events: auto; }
+body.m #mSheet, body.m #watchlist { display: flex !important; flex-direction: column; position: fixed; left: 0; right: 0; bottom: var(--m-tab); z-index: 65;
+  width: auto !important; max-height: calc(100% - var(--m-tab) - 56px); background: var(--panel); border: 1px solid var(--border); border-bottom: 0;
+  border-radius: 14px 14px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, .35); transform: translateY(110%); transition: transform .22s ease; visibility: hidden; }
+body.m #mSheet.m-on, body.m #watchlist.m-on { transform: none; visibility: visible; }
+body.m #watchlist { height: 72vh; border-left: 1px solid var(--border); }
+body.m #watchlist .sp-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.m #watchlist .sp-pane.hidden { display: none !important; }
+body.m #watchlist .sp-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+body.m #wlItems { flex: 1; min-height: 0; }
+body.m .m-grab { display: flex; justify-content: center; padding: 8px 0 4px; touch-action: none; flex-shrink: 0; }
+.m-grab i { width: 38px; height: 4px; border-radius: 2px; background: var(--muted); opacity: .6; }
+.m-sh-head { display: flex; align-items: center; gap: 6px; padding: 2px 10px 8px 14px; font-size: 15px; touch-action: none; }
+.m-sh-body { overflow-y: auto; padding: 4px 12px 14px; min-height: 0; }
+body.m .sp-head, body.m .wl-head { touch-action: none; font-size: 15px; padding: 6px 12px; }
+body.m .wl-row { padding: 11px 12px; font-size: 14px; }
+body.m .wl-item button { opacity: 1; }
+body.m .wl-item:hover { background: transparent; }
+body.m .wl-item:hover .wl-tags { display: none; }
+body.m .sp-tools button, body.m .wl-head button { min-width: 36px; min-height: 36px; }
+body.m #tfs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+body.m #tfs button { padding: 12px 0; font-size: 15px; background: var(--panel2); border-radius: 8px; }
+body.m #tfs button.active { background: var(--accent); color: #fff; }
+.m-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.m-grid button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 2px; font-size: 11.5px; border-radius: 10px; color: var(--text); }
+.m-grid button svg { width: 26px; height: 26px; }
+.m-grid button:active { background: var(--panel2); }
+
+/* dialogs become bottom sheets */
+body.m dialog { width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 14px 14px 0 0; border-bottom: 0; max-height: 90vh; padding-bottom: env(safe-area-inset-bottom); }
+body.m dialog .dlg { max-height: calc(90vh - env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+body.m dialog .list { overflow-y: auto; min-height: 0; }
+body.m dialog .dlg-head { font-size: 15px; }
+body.m dialog .dlg-head button { min-width: 40px; min-height: 40px; }
+body.m dialog input, body.m dialog select { font-size: 16px; min-height: 38px; }   /* 16px: no iOS zoom on focus */
+body.m dialog .list .it { padding: 12px 10px; font-size: 14px; }
+body.m dialog .dlg-foot button { min-height: 42px; padding: 0 16px; }
+body.m #toasts { left: 12px; right: 12px; bottom: calc(var(--m-tab) + 12px); max-width: none; }
+body.m #editor { position: fixed; inset: 46px 0 var(--m-tab) 0; height: auto; z-index: 70; }
+@media (orientation: landscape) and (max-height: 500px) {
+  body.m { --m-tab: calc(44px + env(safe-area-inset-bottom)); }
+  body.m #mTabs button { flex-direction: row; gap: 6px; font-size: 12px; }
+  body.m #mTabs svg { width: 20px; height: 20px; }
+  body.m #watchlist, body.m #mSheet { left: auto; width: min(420px, 60vw) !important; max-height: calc(100% - var(--m-tab) - 8px); height: calc(100% - var(--m-tab) - 8px); border-radius: 14px 0 0 0; }
+  body.m #topbar { height: calc(40px + env(safe-area-inset-top)); }
+}
