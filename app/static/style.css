@@ -769,3 +769,4 @@ body.m #stickyAlerts { left: auto; right: 8px; bottom: calc(var(--m-tab) + 50px)
 body.m .lg-ind { pointer-events: none; }                       /* only the name and buttons take taps; the rest reaches the chart */
 body.m .lg-ind .t, body.m .lg-ind button { pointer-events: auto; }
 body.m #navBar, body.m .pane-btns { display: none !important; }   /* phones pinch / drag instead; these sat in the middle of the chart and caught taps */
+body.m #drawFloat { top: auto; bottom: 4px; left: 64px; right: 8px; transform: none; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }   /* bottom dock: keeps the price pane free */
