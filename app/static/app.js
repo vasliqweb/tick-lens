@@ -155,7 +155,7 @@ function tradeLineAt(y) {
   for (const l of tradeLines) {
     if (!l.spec.drag) continue;
     const ly = mainSeries.priceToCoordinate(l.spec.price);
-    if (ly != null && Math.abs(ly - y) <= 5 && (!best || Math.abs(ly - y) < best.d)) best = { l, d: Math.abs(ly - y) };
+    if (ly != null && Math.abs(ly - y) <= (document.body.classList.contains("m") ? 16 : 5) && (!best || Math.abs(ly - y) < best.d)) best = { l, d: Math.abs(ly - y) };
   }
   return best?.l || null;
 }

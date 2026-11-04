@@ -712,3 +712,24 @@ body.m input[type=checkbox] { width: 20px; height: 20px; }
 .m-step { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .m-step > button { min-width: 38px; font-size: 18px; border-radius: 0; background: var(--panel2); padding: 0 6px; }
 .m-step > input { width: 70px !important; min-width: 0 !important; text-align: center; border: 0 !important; border-radius: 0; }
+/* mobile: drawing */
+#mDrawFab, #mDrawHint, #mLoupe { display: none; }
+body.m #mDrawFab { display: flex; position: absolute; left: 10px; bottom: 44px; z-index: 30; width: 46px; height: 46px; border-radius: 50%; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--border); box-shadow: 0 3px 12px rgba(0, 0, 0, .35); color: var(--text); }
+body.m #mDrawFab.on, body.m #mDrawFab.open { background: var(--accent); color: #fff; border-color: var(--accent); }
+body.m #mDrawHint { display: flex; position: absolute; left: 64px; bottom: 50px; z-index: 30; align-items: center; gap: 8px; max-width: calc(100% - 140px);
+  padding: 6px 6px 6px 12px; border-radius: 18px; background: var(--panel); border: 1px solid var(--border); box-shadow: 0 3px 12px rgba(0, 0, 0, .3); font-size: 12px; white-space: nowrap; }
+body.m #mDrawHint.hidden { display: none; }
+#mDrawHint span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+#mDrawHint button { padding: 4px 8px; }
+body.m.m-draw #drawBar { display: flex !important; position: fixed; left: 0; top: calc(46px + env(safe-area-inset-top)); bottom: var(--m-tab); z-index: 58; width: 54px;
+  overflow-y: auto; box-shadow: 4px 0 18px rgba(0, 0, 0, .35); padding-bottom: 60px; }
+body.m.m-draw #drawBar .db-btn { width: 44px; height: 42px; }
+body.m.m-draw #drawBar .db-more { opacity: 1; padding: 8px 2px; }
+body.m #drawFly { max-height: 70vh; overflow-y: auto; }
+body.m #drawFly .fly-it { padding: 10px 12px; font-size: 14px; }
+body.m #mLoupe { display: block; position: fixed; z-index: 90; width: 120px; height: 120px; border-radius: 50%; border: 2px solid var(--accent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5); pointer-events: none; opacity: 0; }
+body.m #mLoupe.on { opacity: 1; }
+body.m #drawFloat, body.m .draw-float { font-size: 14px; }
+body.m #drawFloat button, body.m #drawFloat select, body.m #drawFloat input { min-height: 36px; min-width: 36px; }

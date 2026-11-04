@@ -241,12 +241,89 @@ $("#legendInds").addEventListener("click", (e) => {
   ob.observe(f, { childList: true, subtree: true });
 }
 
+// ------------------------------------------------------------------ drawing: pencil button, tool picker overlay, hint chip, magnifier loupe
+const D = () => window.__ltv?.draw, TOOLS = window.LTVDraw?.TOOLS || {};
+const drawing = () => { const t = D()?.state?.tool; return !!t && (TOOLS[t] ? TOOLS[t].group !== "cursor" : t === "measure" || t === "zoom"); };
+const fab = document.createElement("button");
+fab.id = "mDrawFab"; fab.title = "Drawing tools"; fab.innerHTML = I.pencil;
+const hint = document.createElement("div");
+hint.id = "mDrawHint";
+const chartWrap = $("#chartWrap");
+chartWrap.append(fab, hint);
+const drawBar = $("#drawBar");
+function setDrawOpen(on) {
+  document.body.classList.toggle("m-draw", on);
+  fab.classList.toggle("open", on);
+}
+function paintDraw() {
+  const st = D()?.state; if (!st) return;
+  const on = drawing(), t = TOOLS[st.tool];
+  fab.classList.toggle("on", on);
+  hint.classList.toggle("hidden", !on);
+  if (on) {
+    const n = t?.n, what = st.tool === "measure" ? "Tap start, then end" : n === 0 ? "Drag to draw" : n === 1 ? "Tap to place" : n === -1 ? "Tap points, double-tap to finish" : `Tap ${n} points or drag`;
+    hint.innerHTML = `<b>${app.esc(t?.name || st.tool)}</b><span>${what}</span><button data-a="x" title="Cancel">✕</button>`;
+  }
+}
+fab.onclick = (e) => { e.stopPropagation(); setDrawOpen(!document.body.classList.contains("m-draw")); };
+fab.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
+hint.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
+hint.onclick = (e) => { if (e.target.closest('[data-a="x"]')) { const st = D()?.state; D()?.setTool(st?.cursor || "cross"); paintDraw(); } };
+// picking a tool closes the picker so the whole chart is free for the finger
+let toolBefore = null;
+const pickStart = () => { toolBefore = D()?.state?.tool; };
+const pickEnd = () => setTimeout(() => { if (isM() && D()?.state?.tool !== toolBefore && drawing()) setDrawOpen(false); paintDraw(); }, 30);
+drawBar?.addEventListener("pointerdown", pickStart, true); drawBar?.addEventListener("click", pickEnd);
+$("#drawFly")?.addEventListener("pointerdown", pickStart, true); $("#drawFly")?.addEventListener("click", pickEnd);
+setInterval(() => { if (isM()) paintDraw(); }, 400);       // tool resets to the cursor after a drawing is placed
+// tapping the chart while the picker is open closes it
+chartWrap.addEventListener("pointerdown", (e) => { if (isM() && document.body.classList.contains("m-draw") && !e.target.closest("#mDrawFab")) setDrawOpen(false); }, true);
+
+// magnifier: shows what is under the finger while placing or dragging a drawing / trade line
+const loupe = document.createElement("canvas");
+loupe.id = "mLoupe";
+document.body.appendChild(loupe);
+const LS = 120, ZOOM = 2;
+let lp = null;
+function paintLoupe(x, y) {
+  const r = window.devicePixelRatio || 1, g = loupe.getContext("2d");
+  if (loupe.width !== LS * r) { loupe.width = loupe.height = LS * r; }
+  const half = LS / ZOOM / 2;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = getComputedStyle(document.body).getPropertyValue("--bg") || "#131722";
+  g.fillRect(0, 0, loupe.width, loupe.height);
+  for (const c of chartWrap.querySelectorAll("canvas")) {
+    const b = c.getBoundingClientRect();
+    if (!b.width || !c.width || b.right < x - half || b.left > x + half || b.bottom < y - half || b.top > y + half) continue;
+    const kx = c.width / b.width, ky = c.height / b.height;
+    try { g.drawImage(c, (x - half - b.left) * kx, (y - half - b.top) * ky, 2 * half * kx, 2 * half * ky, 0, 0, loupe.width, loupe.height); } catch { /* tainted / empty */ }
+  }
+  g.strokeStyle = "#ff9800"; g.lineWidth = r;
+  g.beginPath(); g.moveTo(loupe.width / 2, loupe.height / 2 - 10 * r); g.lineTo(loupe.width / 2, loupe.height / 2 + 10 * r);
+  g.moveTo(loupe.width / 2 - 10 * r, loupe.height / 2); g.lineTo(loupe.width / 2 + 10 * r, loupe.height / 2); g.stroke();
+  const top = y - LS - 40 < 50 ? y + 40 : y - LS - 40;
+  loupe.style.left = Math.max(6, Math.min(innerWidth - LS - 6, x - LS / 2)) + "px";
+  loupe.style.top = top + "px";
+}
+const wantLoupe = () => drawing() || window.__ltv?.chart?.options?.().handleScroll === false;   // drawing tool, or a drawing / trade line is being dragged
+chartWrap.addEventListener("pointerdown", (e) => { if (isM() && e.pointerType !== "mouse") lp = { id: e.pointerId }; }, true);
+window.addEventListener("pointermove", (e) => {
+  if (!lp || e.pointerId !== lp.id) return;
+  if (!wantLoupe()) { loupe.classList.remove("on"); return; }
+  loupe.classList.add("on");
+  cancelAnimationFrame(lp.raf); const { clientX: x, clientY: y } = e;
+  lp.raf = requestAnimationFrame(() => paintLoupe(x, y));
+}, true);
+const loupeOff = () => { lp = null; loupe.classList.remove("on"); };
+window.addEventListener("pointerup", loupeOff, true); window.addEventListener("pointercancel", loupeOff, true);
+
 // ------------------------------------------------------------------ on / off
 function apply() {
   const on = MQ.matches;
   if (on === isM()) return;
-  if (!on) closeAll();
+  if (!on) { closeAll(); setDrawOpen(false); }
   document.body.classList.toggle("m", on);
+  if (on && D()?.state && !D().state.magnet) { D().state.magnet = 1; D().renderToolbar?.(); }  // weak magnet by default on phones (not persisted, like desktop)
   window.dispatchEvent(new Event("resize"));
 }
 MQ.addEventListener?.("change", apply);

@@ -923,12 +923,12 @@ function init({ chart, el, series, bars, tf, onChange = () => {}, onHideIndicato
 
   // ---------------------------------------------------------------- hit testing
   function hitTest(x, y) {
-    const r = dpr();
+    const r = dpr(), k = document.body.classList.contains("m") ? 2.5 : 1;     // fingers need a fatter hit area (mobile layer)
     if (st.sel && st.sel._P) {
-      const i = st.sel._P.findIndex((q) => Math.hypot(q.x - x, q.y - y) < 8);
+      const i = st.sel._P.findIndex((q) => Math.hypot(q.x - x, q.y - y) < 8 * k);
       if (i >= 0) return { d: st.sel, handle: i };
     }
-    ctx.save(); ctx.setTransform(r, 0, 0, r, 0, 0); ctx.lineWidth = 8;
+    ctx.save(); ctx.setTransform(r, 0, 0, r, 0, 0); ctx.lineWidth = 8 * k;
     try {
       for (let k = st.items.length - 1; k >= 0; k--) {
         const d = st.items[k];
@@ -936,7 +936,7 @@ function init({ chart, el, series, bars, tf, onChange = () => {}, onHideIndicato
         for (const h of d._hits) {
           if (h.stroke ? ctx.isPointInStroke(h.path, x * r, y * r) : ctx.isPointInPath(h.path, x * r, y * r)) return { d, handle: -1 };
         }
-        if (d._P) { const i = d._P.findIndex((q) => Math.hypot(q.x - x, q.y - y) < 6); if (i >= 0) return { d, handle: i }; }
+        if (d._P) { const i = d._P.findIndex((q) => Math.hypot(q.x - x, q.y - y) < 6 * k); if (i >= 0) return { d, handle: i }; }
       }
     } finally { ctx.restore(); }
     return null;
