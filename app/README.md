@@ -84,6 +84,15 @@ Next-move **bias estimate** shown by candle colour. No BUY/SELL markers.
 - Backtest v1.2 (user's Breeze cache, no costs), strong calls right 10 bars later: NIFTY 52 days 56–63% (base ~50%),
   NIFTY FUT 18 days 51–61%, BANKNIFTY 22 days ~50% (no edge). Small sample: context, not a forecast.
 
+## Mobile (`static/mobile.js`)
+On phones (width ≤ 768 px, or a touch screen ≤ 500 px tall in landscape) the page switches to a touch layout. Desktop is unchanged: every rule is scoped to `body.m`.
+- **Bottom tabs:** Chart · Watchlist · Indicators · Trade · More. Panels open as bottom sheets; tap outside or swipe the handle down to close. The top bar keeps the symbol, a timeframe button and the Breeze dot; everything else is under **More**.
+- **Indicators:** ☆ favourites and a Recent group at the top of the list. Tap an indicator's name in the legend to open its settings, which have − / + steppers.
+- **Drawing:** the ✎ button opens the tool bar. Tap the points (or drag) to place a drawing. A magnifier shows what is under your finger, and the weak magnet is on by default. Tap a drawing to get colour, lock, clone and delete at the bottom. Long-press the chart for the crosshair.
+- **Paper trading:** big Sell / Buy buttons in the Trade sheet, − / + steppers in the ticket, and SL / target lines you can drag on the chart. A positions strip above the tabs shows live P&L. Swipe a trade left to exit; exits ask you to confirm. Simulated only.
+- **Install as an app (PWA):** `manifest.webmanifest`, icons and `sw.js` (network-first for the page and `/static`, never `/api` or `/ws`). Browsers allow installing only over https or on localhost. With Tailscale, run on the server: `sudo tailscale serve --bg 8000` (once), then open `https://<machine>.<tailnet>.ts.net` and choose *Add to Home screen* / *Install app*. Add that host to `LTV_ALLOWED_HOSTS`.
+- Screenshots: `docs/mobile/` (Pixel 7 and iPhone 13, portrait and landscape, dark and light).
+
 ## Watchlist
 Live last price, change and % change (Breeze websocket; others polled). ＋ adds any symbol from any source, ✕ removes it.
 
