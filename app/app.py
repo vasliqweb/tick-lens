@@ -67,6 +67,17 @@ def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    """Served from the root so it may control the whole app (installable PWA). Only caches the app shell."""
+    return FileResponse(ROOT / "static" / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifest():
+    return FileResponse(ROOT / "static" / "manifest.webmanifest", media_type="application/manifest+json")
+
+
 # ---------------------------------------------------------------- scripts
 def _list(folder: Path, kind: str):
     out = []
