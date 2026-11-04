@@ -1,0 +1,5 @@
+indicator("RSI", overlay=False, precision=2)
+length = input("Length", 14, min=1)
+plot(rsi(close, length), "RSI", color="#7e57c2")
+hline(70, "Overbought", color="#ef5350")
+hline(30, "Oversold", color="#26a69a")

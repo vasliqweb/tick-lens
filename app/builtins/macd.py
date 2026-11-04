@@ -1,0 +1,8 @@
+indicator("MACD", overlay=False)
+fast = input("Fast", 12, min=1)
+slow = input("Slow", 26, min=1)
+sig = input("Signal", 9, min=1)
+m, s, h = macd(close, fast, slow, sig)
+plot(h, "Histogram", style="histogram", color=np.where(h >= 0, "#26a69a", "#ef5350"))
+plot(m, "MACD", color="#2962ff")
+plot(s, "Signal", color="#ff6d00")

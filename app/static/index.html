@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TickLens</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/favicon-180.png">
+<meta name="theme-color" content="#131722">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="logo" title="TickLens">TL</div>
+  <button id="symbolBtn" class="sym" title="Symbol search"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span id="symText">RELIANCE</span></button>
+  <div class="sep"></div>
+  <div id="tfs" class="group"></div>
+  <div class="sep"></div>
+  <button id="chartTypeBtn" class="tb-ico" title="Chart type"></button>
+  <select id="chartType" class="hidden">
+    <option value="candles">Candles</option>
+    <option value="hollow">Hollow candles</option>
+    <option value="bars">Bars</option>
+    <option value="line">Line</option>
+    <option value="area">Area</option>
+    <option value="ha">Heikin Ashi</option>
+  </select>
+  <div class="sep"></div>
+  <button id="indBtn" class="tb-txt" title="Indicators"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M6 17v-4M10 17v-7M14 17v-5M18 17V7"/><path d="M4 11l5-5 4 3 7-6"/></svg><span>Indicators</span></button>
+  <button id="editorBtn" class="tb-txt" title="Script editor"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16"/></svg><span>Script</span></button>
+  <div class="spacer"></div>
+  <span id="status" class="status">disconnected</span>
+  <div class="sep"></div>
+  <button id="bzBtn" class="tb-txt" title="Breeze connection"><i class="bz-dot"></i><span>Breeze</span></button>
+  <div id="saveGrp"><button id="saveBtn" title="Save layout (Ctrl + S)"><span></span></button><button id="saveMenuBtn" title="Manage layouts"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button></div>
+  <button id="layoutBtn" class="tb-ico" title="Select layout"></button>
+  <button id="fsBtn" class="tb-ico" title="Fullscreen mode (Shift + F)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/></svg></button>
+  <button id="chartSetBtn" class="tb-ico" title="Chart settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4h9l4.5 8-4.5 8h-9L3 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+  <button id="themeBtn" class="tb-ico" title="Toggle theme"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+</header>
+
+<main id="layout">
+  <div id="gridCol">
+  <div id="grid">
+  <section id="chartWrap">
+    <div id="chart"></div>
+    <div id="chartLoader" class="loader"><div class="ld-box"><div class="ld-candles"><i></i><i></i><i></i><i></i><i></i></div><div class="ld-text"></div></div></div>
+    <div id="volLoader" class="vloader"><div class="ld-bars"><i></i><i></i><i></i><i></i></div><span class="ld-text"></span></div>
+    <div id="legend">
+      <div id="legendMain"></div>
+      <div id="legendInds"></div>
+    </div>
+  </section>
+  </div>
+  <div id="rangeBar"></div>
+  </div>
+
+  <aside id="watchlist">
+    <div id="wlResize" title="Drag to resize"></div>
+    <div class="wl-head">
+      <button id="wlName" title="Watchlists"><span></span> ▾</button>
+      <button id="wlAdd" title="Add symbol">＋</button>
+    </div>
+    <div class="wl-row wl-cols"><span>Symbol</span><span>Last</span><span>Chg</span><span>Chg%</span></div>
+    <div id="wlItems"></div>
+  </aside>
+</main>
+
+<section id="editor" class="hidden">
+  <div class="ed-bar">
+    <span class="ed-title">Script</span>
+    <input id="edName" placeholder="script_name" spellcheck="false">
+    <select id="edOpen"><option value="">Open…</option></select>
+    <button id="edNew">New</button>
+    <button id="edSave">Save</button>
+    <button id="edDelete">Delete</button>
+    <div class="spacer"></div>
+    <button id="edApply" class="primary">Add to chart</button>
+    <button id="edClose">✕</button>
+  </div>
+  <div class="ed-body">
+    <textarea id="edCode" spellcheck="false"></textarea>
+    <div id="edHelp">
+      <b>Python script API</b>
+      <pre>indicator(title, overlay=True)
+x = input("Name", 14, min=1)   # int/float/bool/str, options=[...]
+plot(series, "Title", color="#2962ff",
+     style="line"|"histogram"|"area"|"step",
+     linewidth=2)
+hline(70, "Level", color="#787b86")
+plotshape(bool_series, "Buy", position="below",
+     shape="arrowUp", color="#26a69a", text="BUY")
+barcolor(color_series, border=None)
+box(left, right|None, top, bottom, bgcolor, border_color,
+    border_style="dashed", text="D 80")
+label(bar, price, "B", color, style="up"|"down")
+line(x1, y1, x2|None, y2, color, width, style)
+table([["RVOL", "1.4x"], ...], position="top_right")
+  (bars: index like -1 or a timestamp)
+lower_tf(60)  -> intrabar DataFrame or None
+security(86400, lambda d: d.close) -> HTF, no repaint
+
+Series: open high low close volume
+        hl2 hlc3 ohlc4 df (DataFrame)
+Funcs:  sma ema rma wma hma stdev rsi
+        macd bb highest lowest change nz
+        crossover crossunder
+Libs:   np pd math ta (pandas-ta)
+Info:   syminfo.type/.timezone/.session/.mintick
+        timeframe (sec) session_day session_minute</pre>
+      <div id="edConsole"></div>
+    </div>
+  </div>
+</section>
+
+<dialog id="symDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><b id="symTitle">Symbol search</b><button value="cancel">✕</button></div>
+    <div class="row">
+      <input id="symInput" placeholder="e.g. RELIANCE, NIFTY 24000 CE, SENSEX, SILVER, MCX:GOLD1!, USDINR" autocomplete="off">
+    </div>
+    <div id="symTabs" class="sym-tabs"></div>
+    <div id="symKinds" class="sym-tabs sym-kinds"></div>
+    <div id="symResults" class="list"></div>
+  </form>
+</dialog>
+
+<dialog id="indDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><b>Indicators</b><button value="cancel">✕</button></div>
+    <input id="indSearch" placeholder="Search" autocomplete="off">
+    <div id="indList" class="list"></div>
+  </form>
+</dialog>
+
+<dialog id="setDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><b id="setTitle">Settings</b><button value="cancel">✕</button></div>
+    <div id="setForm"></div>
+    <div class="dlg-foot"><button type="button" id="setDefaults">Defaults</button><span class="spacer"></span><button value="cancel">Cancel</button><button id="setOk" value="ok" class="primary">OK</button></div>
+  </form>
+</dialog>
+
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/settings.js"></script>
+<script src="/static/vprofile.js"></script>
+<script src="/static/drawings.js"></script>
+<script src="/static/zones.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/layout.js"></script>
+<script src="/static/sidebar.js"></script>
+<script src="/static/trading.js"></script>
+</body>
+</html>

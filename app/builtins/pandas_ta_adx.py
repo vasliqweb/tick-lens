@@ -1,0 +1,8 @@
+# Uses pandas-ta (150+ indicators available as ta.<name>)
+indicator("ADX (pandas-ta)", overlay=False, precision=2)
+length = input("Length", 14, min=1)
+r = ta.adx(high, low, close, length=length)
+plot(r.iloc[:, 0], "ADX", color="#ff9800")
+plot(r.iloc[:, -2], "+DI", color="#26a69a", linewidth=1)
+plot(r.iloc[:, -1], "-DI", color="#ef5350", linewidth=1)
+hline(25, "Trend")

@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Secrets / env
+.env
+.env.*
+session.json
+*cookies*.json
+*.cookies
+
+# Logs & large/binary
+*.log
+*.har
+*.zip
+*.mp4
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# App runtime data (cache holds Breeze/TradingView session tokens - NEVER commit)
+app/cache/
+app/data/
+app/layouts/
+
+# Local Claude settings
+.claude/

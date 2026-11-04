@@ -1,0 +1,7 @@
+indicator("Bollinger Bands", overlay=True)
+length = input("Length", 20, min=1)
+mult = input("StdDev", 2.0, min=0.1, step=0.1)
+mid, up, lo = bb(close, length, mult)
+plot(mid, "Basis", color="#ff6d00", linewidth=1)
+plot(up, "Upper", color="#2962ff", linewidth=1)
+plot(lo, "Lower", color="#2962ff", linewidth=1)
