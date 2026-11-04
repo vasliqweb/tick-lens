@@ -63,6 +63,12 @@ button.primary:hover { filter: brightness(1.1); }
 .wl-item { cursor: pointer; }
 .wl-item .sym { display: flex; align-items: center; gap: 5px; min-width: 0; font-weight: 600; }
 .wl-item .sym-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* watchlist tags: hidden so the name gets the full cell; shown on hover as a floating pill (no layout shift) */
+.wl-item .sym { position: relative; overflow: visible; }   /* .sym-n keeps its own ellipsis */
+.wl-item .wl-tags { display: none; position: absolute; left: -2px; top: calc(100% + 1px); z-index: 5; gap: 4px; align-items: center;
+  padding: 3px 5px; border-radius: 4px; background: var(--panel); border: 1px solid var(--border); box-shadow: 0 3px 10px rgba(0,0,0,.25); pointer-events: none; }
+.wl-item:hover .wl-tags { display: inline-flex; }
+.wl-item:last-child:not(:first-child) .wl-tags { top: auto; bottom: calc(100% + 1px); }
 .src-tag { flex: none; font-style: normal; font-size: 9px; font-weight: 600; line-height: 1; padding: 2px 4px; border-radius: 3px; letter-spacing: .2px; }
 .src-tag.yf { background: #7b1fa233; color: #b072d6; }
 .src-tag.breeze { background: #f2711c33; color: #f2994a; }

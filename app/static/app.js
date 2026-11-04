@@ -1134,9 +1134,9 @@ function renderWatchlist() {
     const d = document.createElement("div");
     d.className = "wl-row wl-item" + (w === A().S.symbol ? " cur" : "");
     d.dataset.key = wkey(w);
-    d.title = w;
-    const src = srcFor(w);
-    d.innerHTML = `<span class="sym"><span class="sym-n">${esc(w)}</span>${exTag(exchOf(w))}<i class="src-tag ${src}" title="Streaming from ${SRC_NAME[src] || src}">${SRC_TAG[src] || src}</i></span><span class="q-last sk"></span><span class="q-chg sk"></span><span class="q-pct sk"></span>` +
+    const src = srcFor(w), ex = exchOf(w);
+    d.title = [w, ex, SRC_NAME[src] || src].filter(Boolean).join(" · ");
+    d.innerHTML = `<span class="sym"><span class="sym-n">${esc(w)}</span><span class="wl-tags">${exTag(ex)}<i class="src-tag ${src}" title="Streaming from ${SRC_NAME[src] || src}">${SRC_TAG[src] || src}</i></span></span><span class="q-last sk"></span><span class="q-chg sk"></span><span class="q-pct sk"></span>` +
       `<button title="Remove from watchlist" class="rm">✕</button>`;
     d.onclick = () => each("symbol", (c) => c.setSymbol(w));
     d.querySelector(".rm").onclick = (e) => { e.stopPropagation(); S.watchlist.splice(i, 1); save(); renderWatchlist(); sendWatch(); };
