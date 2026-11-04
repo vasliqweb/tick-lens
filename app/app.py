@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -36,6 +37,10 @@ LAYOUTS = ROOT / "layouts"          # saved chart layouts (JSON, one file each)
 LAYOUTS.mkdir(exist_ok=True)
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Extra hosts the live socket accepts (comma-separated), e.g. a private Tailscale IP/name:
+#   LTV_ALLOWED_HOSTS=100.71.75.126,laxman.tail7c96d8.ts.net
+# Only add hosts on a private network you control: scripts are Python run on this machine.
+LOCAL_HOSTS |= {h.strip().lower() for h in os.environ.get("LTV_ALLOWED_HOSTS", "").split(",") if h.strip()}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 app = FastAPI(title="TickLens")

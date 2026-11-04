@@ -11,6 +11,10 @@ run.bat           # Windows
 ```
 Open http://127.0.0.1:8000
 
+Opening it from another device on a private network (e.g. Tailscale): start uvicorn with `--host 0.0.0.0` and set
+`LTV_ALLOWED_HOSTS=<private ip or name>` (comma-separated), otherwise the live socket rejects that origin (HTTP 403) and
+no chart loads. Indicator scripts run as Python on the server, so never list a public address.
+
 ## Features
 - Candles / hollow / bars / line / area / Heikin Ashi, volume, dark + light theme
 - Timeframes 1m 5m 15m 30m 1h 1D 1W, live updates (Yahoo WebSocket, ccxt.pro, NSE polling; auto-fallback to polling)
