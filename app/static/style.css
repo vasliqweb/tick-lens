@@ -698,6 +698,10 @@ body.m #editor { position: fixed; inset: 46px 0 var(--m-tab) 0; height: auto; z-
   body.m #mTabs svg { width: 20px; height: 20px; }
   body.m #watchlist, body.m #mSheet { left: auto; width: min(420px, 60vw) !important; max-height: calc(100% - var(--m-tab) - 8px); height: calc(100% - var(--m-tab) - 8px); border-radius: 14px 0 0 0; }
   body.m #topbar { height: calc(40px + env(safe-area-inset-top)); }
+  body.m #rangeBar { display: none; }            /* landscape phones: every pixel of height goes to the chart */
+  body.m #mPos { height: 32px; }
+  body.m #mDrawFab { bottom: 34px; width: 40px; height: 40px; }
+  body.m #mDrawHint { bottom: 38px; }
 }
 /* mobile: indicators */
 body.m #indList .it { align-items: center; gap: 8px; }
