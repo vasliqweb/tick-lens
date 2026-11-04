@@ -156,6 +156,91 @@ aside.addEventListener("click", (e) => {
   if (e.target.closest(".wl-item") && !e.target.closest("button")) setTimeout(closeAll, 80);
 });
 
+// ------------------------------------------------------------------ steppers: − / + around number inputs (indicator settings, trade ticket)
+function stepperize(root) {
+  if (!isM()) return;
+  root.querySelectorAll('input[type="number"]:not([data-mstep])').forEach((inp) => {
+    inp.dataset.mstep = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "m-step";
+    inp.replaceWith(wrap);
+    const mk = (t, k) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; b.dataset.k = k; return b; };
+    wrap.append(mk("−", -1), inp, mk("+", 1));
+    wrap.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-k]"); if (!b || inp.disabled) return;
+      e.preventDefault();
+      const step = +inp.step > 0 ? +inp.step : 1, dec = (String(inp.step).split(".")[1] || "").length;
+      let v = (+inp.value || 0) + step * +b.dataset.k;
+      if (inp.min !== "" && v < +inp.min) v = +inp.min;
+      if (inp.max !== "" && v > +inp.max) v = +inp.max;
+      inp.value = dec ? v.toFixed(dec) : String(Math.round(v));
+      inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+}
+
+// ------------------------------------------------------------------ indicators: favourites + recent at the top of the list, legend name -> settings
+const IND_FAV = "ltv.m.indFav", IND_REC = "ltv.m.indRecent";
+const indKey = (it) => it.querySelector("small")?.textContent || it.textContent;
+let indObs = null;
+function decorateIndList() {
+  const box = $("#indList");
+  if (!isM() || !box) return;
+  try {
+    box.querySelectorAll(".m-indgrp, .m-indgrp-it").forEach((x) => x.remove());
+    const fav = store(IND_FAV, []), rec = store(IND_REC, []);
+    const items = [...box.querySelectorAll(".it")];
+    const byKey = new Map(items.map((it) => [indKey(it), it]));
+    for (const it of items) {
+      if (!it.querySelector(".m-star")) it.insertAdjacentHTML("afterbegin", '<button type="button" class="m-star" title="Favourite">☆</button>');
+      const on = fav.includes(indKey(it)), st = it.querySelector(".m-star");
+      st.textContent = on ? "★" : "☆"; st.classList.toggle("on", on);
+    }
+    const group = (title, keys) => {
+      const its = keys.map((k) => byKey.get(k)).filter(Boolean);
+      if (!its.length) return "";
+      return `<div class="grp m-indgrp">${title}</div>` + its.map((it) => `<div class="it m-indgrp-it" data-src="${app.esc(indKey(it))}">${it.innerHTML}</div>`).join("");
+    };
+    box.insertAdjacentHTML("afterbegin", group("Favourites", fav) + group("Recent", rec.filter((k) => !fav.includes(k)).slice(0, 5)));
+  } finally { indObs?.takeRecords(); }      // our own edits must not re-trigger the observer
+}
+{
+  const box = $("#indList");
+  indObs = new MutationObserver(() => decorateIndList());
+  indObs.observe(box, { childList: true });
+  box.addEventListener("click", (e) => {
+    if (!isM()) return;
+    const star = e.target.closest(".m-star");
+    const it = e.target.closest(".it"); if (!it) return;
+    const key = it.dataset.src || indKey(it);
+    if (star) {
+      e.stopPropagation(); e.preventDefault();
+      const fav = store(IND_FAV, []);
+      keep(IND_FAV, fav.includes(key) ? fav.filter((k) => k !== key) : [key, ...fav]);
+      decorateIndList(); return;
+    }
+    keep(IND_REC, [key, ...store(IND_REC, []).filter((k) => k !== key)].slice(0, 8));
+    if (it.dataset.src) {        // a copy in Favourites / Recent: run the real row's handler
+      e.stopPropagation();
+      [...box.querySelectorAll(".it:not(.m-indgrp-it)")].find((x) => indKey(x) === key)?.click();
+    }
+  }, true);
+}
+// phones: don't pop the keyboard over the list when the dialog opens (tap the search box to type)
+new MutationObserver(() => { if (isM() && $("#indDlg").open && document.activeElement === $("#indSearch")) $("#indSearch").blur(); })
+  .observe($("#indDlg"), { attributes: true, attributeFilter: ["open"] });
+// tap an indicator name in the chart legend: open its settings
+$("#legendInds").addEventListener("click", (e) => {
+  if (!isM()) return;
+  const t = e.target.closest(".lg-ind .t"); if (!t) return;
+  t.closest(".lg-ind").querySelector('[data-a="set"]')?.click();
+});
+// settings dialog: steppers on number inputs
+{
+  const f = $("#setForm"), ob = new MutationObserver(() => { stepperize(f); ob.takeRecords(); });
+  ob.observe(f, { childList: true, subtree: true });
+}
+
 // ------------------------------------------------------------------ on / off
 function apply() {
   const on = MQ.matches;
@@ -167,5 +252,5 @@ function apply() {
 MQ.addEventListener?.("change", apply);
 apply();
 
-window.LTVMobile = { isM, closeAll, openSide, openSheet, store, keep, I, get cur() { return cur; } };
+window.LTVMobile = { isM, closeAll, openSide, openSheet, store, keep, I, stepperize, get cur() { return cur; } };
 })();

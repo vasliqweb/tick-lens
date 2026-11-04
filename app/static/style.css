@@ -699,3 +699,16 @@ body.m #editor { position: fixed; inset: 46px 0 var(--m-tab) 0; height: auto; z-
   body.m #watchlist, body.m #mSheet { left: auto; width: min(420px, 60vw) !important; max-height: calc(100% - var(--m-tab) - 8px); height: calc(100% - var(--m-tab) - 8px); border-radius: 14px 0 0 0; }
   body.m #topbar { height: calc(40px + env(safe-area-inset-top)); }
 }
+/* mobile: indicators */
+body.m #indList .it { align-items: center; gap: 8px; }
+body.m #indList .it > span { flex: 1; }
+.m-star { display: none; }
+body.m .m-star { display: inline-block; padding: 4px 8px; font-size: 18px; color: var(--muted); line-height: 1; }
+body.m .m-star.on { color: #f5b301; }
+body.m .lg-ind .t { cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+body.m #setForm .srow { padding: 8px 0; font-size: 14px; flex-wrap: wrap; }
+body.m #setForm label.srow input:not([type=checkbox]), body.m #setForm label.srow select { width: auto; }
+body.m input[type=checkbox] { width: 20px; height: 20px; }
+.m-step { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.m-step > button { min-width: 38px; font-size: 18px; border-radius: 0; background: var(--panel2); padding: 0 6px; }
+.m-step > input { width: 70px !important; min-width: 0 !important; text-align: center; border: 0 !important; border-radius: 0; }
