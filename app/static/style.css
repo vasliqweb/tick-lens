@@ -766,3 +766,5 @@ body.m .pt-dlg .m-step > input { width: 64px !important; }
 body.m .pt-dlg .pt-body { overflow-y: auto; min-height: 0; }
 body.m .m-step:has(> input.hidden) { display: none; }
 body.m #stickyAlerts { left: auto; right: 8px; bottom: calc(var(--m-tab) + 50px); width: min(330px, calc(100vw - 16px)); max-height: 30vh; overflow-y: auto; }
+body.m .lg-ind { pointer-events: none; }                       /* only the name and buttons take taps; the rest reaches the chart */
+body.m .lg-ind .t, body.m .lg-ind button { pointer-events: auto; }
