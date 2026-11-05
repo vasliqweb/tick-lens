@@ -84,7 +84,7 @@ def account_summary(trades: Optional[list] = None, acct: Optional[dict] = None) 
             orders += 1
             blocked += t["entry"] * t["qty"]
         elif t["status"] == "pending":
-            blocked += (t["limit"] or 0) * t["qty"]
+            blocked += (t["limit"] or t.get("estPrice") or 0) * t["qty"]
     fees = orders * brk
     balance = a["capital"] + booked - fees
     return {**a, "booked": round(booked, 2), "fees": round(fees, 2), "orders": orders, "balance": round(balance, 2),
@@ -260,6 +260,15 @@ async def get_quote(symbol: str):
     return q
 
 
+@router.get("/sync")
+async def sync(rev: int = -1, seq: int = 0):
+    """Browser poll: engine revision (reload trades when it changed) and new engine messages (fills, exits)."""
+    from .paper_engine import Engine
+    e = Engine.get()
+    e.start()
+    return e.sync(rev, seq)
+
+
 @router.get("/account")
 def get_account():
     return account_summary()
@@ -295,8 +304,8 @@ async def open_trade(body: dict = Body(...)):
     lots = int(_num(body.get("lots"), "lots") or 1)
     lot_size = int(_num(body.get("lotSize"), "lotSize") or 1)
     entry_type = body.get("entryType", "market")
-    if entry_type not in ("market", "limit", "stop"):
-        raise HTTPException(400, "entryType must be market, limit or stop")
+    if entry_type not in ("market", "limit", "stop", "band"):
+        raise HTTPException(400, "entryType must be market, limit, band or stop")
     src = "breeze" if FNO_RE.match(sym) else str(body.get("src") or "breeze")   # quote from the chart's own source
     limit = _num(body.get("limit"), "limit")
     sl, target = _num(body.get("sl"), "sl"), _num(body.get("target"), "target")
@@ -308,7 +317,10 @@ async def open_trade(body: dict = Body(...)):
          "show": bool(body.get("show", True)), "src": src, "status": "pending", "createdAt": now, "algorithmVersion": ALGO,
          "entry": None, "entryAt": None, "entryQuote": None, "exit": None, "exitAt": None, "exitReason": None, "exitQuote": None,
          "events": [{"t": now, "e": "created", "type": entry_type, "limit": limit}]}
-    if entry_type in ("limit", "stop"):
+    server = _server_order(t, body, entry_type)
+    if server:
+        pass                                  # the engine (core/paper_engine.py) fills it
+    elif entry_type in ("limit", "stop"):
         if limit is None:
             raise HTTPException(400, f"{entry_type} price required")
     else:
@@ -325,13 +337,85 @@ async def open_trade(body: dict = Body(...)):
     _check_levels(t)
     with _lock:
         all_ = load()
-        need = (t["entry"] or t["limit"]) * t["qty"]
+        need = (t["entry"] or t["limit"] or t.get("estPrice") or 0) * t["qty"]
         acc = account_summary(all_)
         if need > acc["available"]:
             raise HTTPException(409, f"insufficient capital: needs ₹{need:,.2f}, available ₹{acc['available']:,.2f}")
         all_.insert(0, t)
         save(all_)
+    if server:
+        from .paper_engine import Engine
+        Engine.get().start()
+        Engine.get().changed()
     return t
+
+
+SL_MODES = ("prevLow", "prevClose", "index", "premium", "none")
+TG_MODES = ("range", "index", "premium", "none")
+
+
+def _server_order(t: dict, body: dict, entry_type: str) -> bool:
+    """Index-triggered and tolerance-band orders are run by the server engine. Validates and fills in their fields."""
+    cond, band = body.get("cond"), body.get("band")
+    if not cond and entry_type != "band":
+        return False
+    from .paper_engine import valid_until
+    if t["kind"] != "OPT" or t["src"] != "breeze":
+        raise HTTPException(400, "index-triggered / range orders are for Breeze options")
+    t.update(engine="server", algorithmVersion="paper-engine-1", validUntil=valid_until(t["createdAt"]),
+             estPrice=_num(body.get("price"), "price"), idxSl=None, idxTarget=None)
+    if cond:
+        under = canonical(str(cond.get("under") or t["under"] or ""))
+        tf = int(_num(cond.get("tf"), "tf") or 0)
+        if tf not in (60, 180, 300, 900, 1800, 3600):
+            raise HTTPException(400, "trigger timeframe must be 1, 3, 5, 15, 30 or 60 minutes")
+        if cond.get("dir") not in ("above", "below"):
+            raise HTTPException(400, "trigger must be above or below")
+        t["cond"] = {"under": under, "tf": tf, "dir": cond["dir"], "level": _num(cond.get("level"), "trigger level"),
+                     "phase": "armed", "signal": None, "triggeredAt": None}
+        if t["cond"]["level"] is None:
+            raise HTTPException(400, "trigger level required")
+        t["under"] = under
+    else:
+        t["cond"] = None
+    if entry_type == "band":
+        pct = _num((band or {}).get("pct"), "tolerance", positive=False)
+        if pct is None or not (0 < pct <= 20):
+            raise HTTPException(400, "tolerance must be between 0 and 20 %")
+        anchor = (band or {}).get("anchor", "now")
+        if anchor not in ("now", "trigger") or (anchor == "trigger" and not cond):
+            anchor = "now"
+        center = _num((band or {}).get("center"), "limit price") if anchor == "now" else None
+        if anchor == "now" and center is None:
+            raise HTTPException(400, "limit price required")
+        lo = round(center * (1 - pct / 100), 2) if center else None
+        hi = round(center * (1 + pct / 100), 2) if center else None
+        t["band"] = {"pct": pct, "anchor": anchor, "center": center, "lo": lo, "hi": hi}
+        t["limit"] = (hi if t["side"] == "buy" else lo) if center else None     # worst fill price (blocks capital)
+        if center:
+            t["estPrice"] = hi
+    else:
+        t["band"] = None
+        t["limit"] = None
+    r = body.get("rules") or {}
+    sl, tg = dict(r.get("sl") or {"mode": "premium"}), dict(r.get("target") or {"mode": "premium"})
+    if sl.get("mode") not in SL_MODES or tg.get("mode") not in TG_MODES:
+        raise HTTPException(400, "bad SL / target mode")
+    if not cond and (sl["mode"] not in ("premium", "none") or tg["mode"] not in ("premium", "none")):
+        raise HTTPException(400, "index SL / target need an index trigger")
+    if sl["mode"] == "index":
+        sl["value"] = _num(sl.get("value"), "index SL")
+    if tg["mode"] == "index":
+        tg["value"] = _num(tg.get("value"), "index target")
+    if tg["mode"] == "range":
+        tg["k"] = _num(tg.get("k"), "target multiple") or 2.0
+    if sl["mode"] != "premium":
+        t["sl"] = None
+    if tg["mode"] != "premium":
+        t["target"] = None
+    t["rules"] = {"sl": sl, "target": tg}
+    t["events"][0].update(cond=t["cond"], band=t["band"], rules=t["rules"])
+    return True
 
 
 def _fill(t: dict, px: float, q: dict, now: float) -> None:
@@ -362,6 +446,23 @@ def update_trade(tid: str, body: dict = Body(...)):
             for k in ("sl", "target", "exitLimit"):
                 if k in body:
                     t[k] = changed[k] = _num(body[k], k)
+            if t.get("engine") == "server":
+                for k in ("idxSl", "idxTarget"):
+                    if k in body:
+                        t[k] = changed[k] = _num(body[k], k)
+                        rule = t["rules"]["sl" if k == "idxSl" else "target"]
+                        if t[k] is None:
+                            rule["mode"] = "none"
+                        elif rule["mode"] not in ("prevLow", "prevClose") or k == "idxTarget":
+                            rule.update(mode="index", value=t[k])
+                if "level" in body and t["status"] == "pending" and (t.get("cond") or {}).get("phase") == "armed":
+                    t["cond"]["level"] = changed["level"] = _num(body["level"], "level")
+                    if t["cond"]["level"] is None:
+                        raise HTTPException(400, "trigger level required")
+                if "sl" in changed and changed["sl"] is not None:
+                    t["rules"]["sl"]["mode"] = "premium"
+                if "target" in changed and changed["target"] is not None:
+                    t["rules"]["target"]["mode"] = "premium"
             if changed:
                 _check_levels(t)
                 t["events"].append({"t": time.time(), "e": "modified", **changed})
@@ -374,7 +475,7 @@ async def fill_pending(tid: str, body: dict = Body(...)):
     """Browser saw the limit/stop entry price trade; Breeze trades are confirmed with a fresh quote first."""
     seen = _num(body.get("price"), "price")
     t = _find(load(), tid)
-    if t["status"] != "pending":
+    if t["status"] != "pending" or t.get("engine") == "server":    # server orders are filled by the engine only
         return t
     long, stop = t["side"] == "buy", t.get("entryType") == "stop"
     q = await quote(t["symbol"]) if t.get("src", "breeze") == "breeze" else None

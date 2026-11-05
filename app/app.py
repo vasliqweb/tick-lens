@@ -45,6 +45,15 @@ LOCAL_HOSTS |= {h.strip().lower() for h in os.environ.get("LTV_ALLOWED_HOSTS", "
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 app = FastAPI(title="TickLens")
 app.include_router(paper_router)            # paper trading (simulated, no broker orders)
+
+
+@app.on_event("startup")
+async def _paper_engine():
+    """Server-side paper orders (index triggers, range limits, index SL / target) keep running without a browser."""
+    from core.paper_engine import Engine
+    Engine.get().start()
+
+
 @app.middleware("http")
 async def no_stale_assets(request, call_next):
     """Make the browser revalidate the page and its scripts, so every chart frame runs the same (latest) code."""

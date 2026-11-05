@@ -545,6 +545,8 @@ html.embed #rail, html.fs #rail { display: none !important; }
 .pt-symnote:empty { display: none; }
 .pt-symnote { font-size: 12px; margin: 2px 0 6px; }
 .pt-sum { font-size: 12px; line-height: 1.6; min-height: 18px; }
+.pt-range { font-size: 12px; margin: -2px 0 6px; padding: 4px 8px; border-radius: 6px; background: var(--panel2); }
+.pt-engnote { font-size: 12px; margin: 4px 8px; }
 .pt-note { font-size: 11px; margin: 6px 0 0; }
 .pt-side.buy button.on, .pt-go.buy { background: #089981; color: #fff; }
 .pt-side.sell button.on, .pt-go.sell { background: #f23645; color: #fff; }

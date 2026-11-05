@@ -55,6 +55,7 @@ function onQuotes(items) {
   for (const q of items) {
     if (q.last == null || q.stale || !(q.last > 0)) continue;   // daily-close fallbacks are not live prices
     for (const t of trades) {
+      if (t.engine === "server") { if (`${app.srcFor(t.symbol)}:${t.symbol}` === q.key || t.under && `${app.srcFor(t.under)}:${t.under}` === q.key) any = true; continue; }   // run by the server engine
       if (busy.has(t.id) || (cool.get(t.id) || 0) > Date.now() || `${app.srcFor(t.symbol)}:${t.symbol}` !== q.key) continue;
       any = true;
       const px = q.last, long = t.side === "buy";
@@ -89,6 +90,32 @@ async function act(t, fn, msg) {
   } finally { busy.delete(t.id); }
 }
 const label = (t) => `${t.side === "buy" ? "Buy" : "Sell"} ${t.qty} ${t.symbol}`;
+const TFN = (v) => TFS_TRIG.find((x) => x[0] === +v)?.[1] || `${v}s`;
+function pendingText(t) {
+  if (t.engine !== "server") return `Limit ${fmt(t.limit)}`;
+  const b = t.band, c = t.cond;
+  const how = b ? (b.lo != null ? `range ${fmt(b.lo)} – ${fmt(b.hi)}` : `±${fmt(b.pct, 1)}% range at trigger`) : "market";
+  if (c && c.phase === "armed") return `When ${c.under} ${TFN(c.tf)} closes ${c.dir} ${fmt(c.level)} → ${how}`;
+  if (c) return `Triggered @ ${fmt(c.signal?.c)} → ${how}`;
+  return `Limit ${how}`;
+}
+
+// ------------------------------------------------------------------ server engine sync: index-triggered / range orders run on the server
+let sRev = -1, sSeq = store("ltv.paper.seq", 0), engNote = "";
+async function syncEngine() {
+  try {
+    const r = await api(`/sync?rev=${sRev}&seq=${sSeq}`);
+    const fresh = r.msgs.filter((m) => m.seq > sSeq);
+    if (fresh.length) { sSeq = r.seq; keep("ltv.paper.seq", sSeq); }
+    if (r.seq < sSeq) { sSeq = r.seq; keep("ltv.paper.seq", sSeq); }      // server restarted
+    for (const m of fresh) { stick(m.text, m.id); side.notify(m.text, "alert"); side.beep(); }
+    if (engNote !== r.note) { engNote = r.note; if (side.isOpen("trades")) render(); }
+    if (r.rev !== sRev) { const first = sRev === -1; sRev = r.rev; if (!first || fresh.length) { trades = await api("/trades"); loadAcct(); changed(true); app.sendWatch(); } }
+  } catch { /* server unreachable: retry */ }
+}
+setInterval(() => { if (!document.hidden || trades.some((t) => t.engine === "server" && (t.status === "pending" || t.status === "open"))) syncEngine(); }, 2000);
+const TFS_TRIG = [[60, "1m"], [180, "3m"], [300, "5m"], [900, "15m"], [1800, "30m"], [3600, "1h"]];
+const bullOf = (side_, right) => (side_ === "buy") === (right === "CE");
 
 // ------------------------------------------------------------------ order ticket
 function underOf(sym) { const m = FNO_RE.exec(sym); return m ? m[1] : sym; }
@@ -106,6 +133,9 @@ function openTicket(o = {}) {
       <div class="srow"><span>Expiry</span><span class="ctl"><select name="exp" class="grow"><option value="">loading…</option></select>
         <select name="step" class="w-sm" title="Strike grid">${[100, 50].map((k) => `<option value="${k}">${k} grid</option>`).join("")}</select></span></div>
       <div class="pt-contract muted">…</div>
+      <div class="srow"><span>Entry</span><span class="ctl"><span class="seg sm grow" data-k="when" title="Enter now, or when an index candle closes beyond a level (runs on the server)"><button type="button" data-v="now">Now</button><button type="button" data-v="index">Index close</button></span></span></div>
+      <div class="srow pt-idx"><span class="pt-idxlbl">When</span><span class="ctl"><span class="seg sm grow" data-k="dir"><button type="button" data-v="above">Closes above</button><button type="button" data-v="below">Closes below</button></span></span></div>
+      <div class="srow pt-idx"><span>Level</span><span class="ctl"><input name="level" class="grow" type="number" step="0.05" placeholder="Index level"><select name="tf" class="w-sm" title="Candle timeframe">${TFS_TRIG.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></span></div>
     </div>
     <div class="pt-symnote muted"></div>
     <div class="srow"><span>Side</span><span class="ctl"><span class="seg sm grow pt-side" data-k="side"><button type="button" data-v="buy">Buy</button><button type="button" data-v="sell">Sell</button></span></span></div>
@@ -113,20 +143,30 @@ function openTicket(o = {}) {
       <input name="lotSize" class="grow" type="number" min="1" step="1" title="Lot size"><span class="unit">= <b class="pt-qty">–</b></span></span></div>
     <div class="srow"><span>Order</span><span class="ctl"><span class="seg sm grow" data-k="etype"><button type="button" data-v="market">Market</button><button type="button" data-v="limit">Limit</button></span>
       <input name="limit" class="grow" type="number" step="0.05" placeholder="Limit price"></span></div>
-    <div class="srow"><span>SL / Target in</span><span class="ctl"><span class="seg sm grow" data-k="slMode" title="SL / target as points from entry or as prices"><button type="button" data-v="pts">Points</button><button type="button" data-v="px">Price</button></span></span></div>
-    <div class="srow"><span>Stop loss</span><span class="ctl"><input name="sl" class="grow" type="number" step="0.05" min="0" placeholder="optional"></span></div>
-    <div class="srow"><span>Target</span><span class="ctl"><input name="target" class="grow" type="number" step="0.05" min="0" placeholder="optional"></span></div>
+    <div class="srow pt-band"><span>Tolerance</span><span class="ctl"><input name="tol" class="w-sm" type="number" step="0.1" min="0" max="20" title="± % around the limit price"><span class="unit">%</span>
+      <select name="anchor" class="grow" title="Which option price the range is built around"><option value="now">of price now</option><option value="trigger">of price at trigger</option></select></span></div>
+    <div class="pt-range muted"></div>
+    <div class="srow pt-ir"><span>Stop loss</span><span class="ctl"><select name="slRule" class="grow"></select><input name="slIdx" class="w-sm" type="number" step="0.05" placeholder="Index"></span></div>
+    <div class="srow pt-ir"><span>Target</span><span class="ctl"><select name="tgRule" class="grow"></select><input name="tgK" class="w-sm" type="number" step="0.5" min="0.5" title="× signal candle range (high − low)"><input name="tgIdx" class="w-sm" type="number" step="0.05" placeholder="Index"></span></div>
+    <div class="srow pt-sltm"><span>SL / Target in</span><span class="ctl"><span class="seg sm grow" data-k="slMode" title="SL / target as points from entry or as prices"><button type="button" data-v="pts">Points</button><button type="button" data-v="px">Price</button></span></span></div>
+    <div class="srow pt-psl"><span>Premium SL</span><span class="ctl"><input name="sl" class="grow" type="number" step="0.05" min="0" placeholder="optional"></span></div>
+    <div class="srow pt-ptg"><span>Premium target</span><span class="ctl"><input name="target" class="grow" type="number" step="0.05" min="0" placeholder="optional"></span></div>
     <div class="srow"><span></span><span class="ctl pt-checks"><label class="chk"><input type="checkbox" name="show"> Show on chart</label><label class="chk pt-wl"><input type="checkbox" name="watch"> Add to watchlist</label></span></div>
     <div class="pt-sum muted"></div>
     <div class="tvl-err pt-err"></div>
-    <p class="muted pt-note">Paper trade only, nothing goes to a broker. Market orders fill at the ask (buy) or bid (sell) from Breeze, or at the LTP when there is no bid/ask.</p>
+    <p class="muted pt-note">Paper trade only, nothing goes to a broker. Market orders fill at the ask (buy) or bid (sell) from Breeze, or at the LTP when there is no bid/ask.
+      Option limit with tolerance: the order rests on the server and fills only when the ask (buy) / bid (sell) is inside the range. Index triggers use closed candles only; unfilled orders expire at 15:30.</p>
   </div>
   <div class="dlg-foot"><span class="spacer"></span><button value="cancel">Cancel</button><button value="ok" class="primary pt-go">Place</button></div></form>`;
   document.body.appendChild(d);
   const f = d.querySelector("form"), err = (m) => { d.querySelector(".pt-err").textContent = m || ""; };
   const st = { tab: isOpt || o.price != null ? "sym" : PREF.tab, right: PREF.right, money: PREF.money, side: PREF.side, etype: o.price != null ? "limit" : "market", slMode: PREF.slMode,
-    meta: null, opt: null, quote: null, optOk: false };
+    meta: null, opt: null, quote: null, optOk: false, when: PREF.when || "now", dir: "above", center: null };
   if (o.price != null) f.limit.value = (+o.price).toFixed(2);
+  st.dir = bullOf(st.side, st.right) ? "above" : "below";
+  f.tol.value = PREF.tol ?? 1; f.anchor.value = PREF.anchor || "now"; f.tgK.value = PREF.tgK ?? 2;
+  f.tf.value = TFS_TRIG.some(([v]) => v === app.A().S.tf) ? app.A().S.tf : (PREF.tf || 300);
+  { const sp = ltpOf(under); if (sp) f.level.value = (Math.round(sp / 5) * 5).toFixed(0); }
   f.n.value = PREF.n; f.lots.value = PREF.lots; f.show.checked = PREF.show; f.watch.checked = PREF.watch; f.step.value = 100; f.lotSize.value = 1;
   const segs = () => d.querySelectorAll(".seg[data-k]").forEach((s) => s.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === st[s.dataset.k])));
   const sym = () => (st.tab === "opt" ? st.opt?.symbol : chartSym);
@@ -137,7 +177,33 @@ function openTicket(o = {}) {
     d.querySelector(".pt-opt").classList.toggle("hidden", st.tab !== "opt");
     d.querySelector(".pt-wl").classList.toggle("hidden", st.tab !== "opt");
     f.n.disabled = st.money === "ATM";
-    f.limit.classList.toggle("hidden", st.etype !== "limit");
+    const idx = st.tab === "opt" && st.when === "index", tol = +f.tol.value || 0, bandOn = st.tab === "opt" && st.etype === "limit" && tol > 0;
+    const trigAnchor = idx && bandOn && f.anchor.value === "trigger";
+    f.limit.classList.toggle("hidden", st.etype !== "limit" || trigAnchor);
+    d.querySelectorAll(".pt-idx").forEach((x) => x.classList.toggle("hidden", !idx));
+    d.querySelector(".pt-band").classList.toggle("hidden", !(st.tab === "opt" && st.etype === "limit"));
+    f.anchor.classList.toggle("hidden", !idx);
+    const bull = bullOf(st.side, st.right), up = bull ? "below" : "above";
+    const slOpts = [["prevLow", `Index closes ${up} previous candle ${bull ? "low" : "high"}`], ["prevClose", `Index closes ${up} previous candle close`],
+      ["index", `Index closes ${up} level`], ["premium", "Option premium"], ["none", "None"]];
+    const tgOpts = [["range", "Index: k × trigger candle range"], ["index", "Index reaches level"], ["premium", "Option premium"], ["none", "None"]];
+    for (const [sel, opts, def] of [[f.slRule, slOpts, PREF.slRule || "prevLow"], [f.tgRule, tgOpts, PREF.tgRule || "range"]]) {
+      const v = sel.value || def;
+      sel.innerHTML = opts.map(([k, l]) => `<option value="${k}">${l}</option>`).join(""); sel.value = v;
+    }
+    d.querySelectorAll(".pt-ir").forEach((x) => x.classList.toggle("hidden", !idx));
+    f.slIdx.classList.toggle("hidden", f.slRule.value !== "index"); f.tgK.classList.toggle("hidden", f.tgRule.value !== "range"); f.tgIdx.classList.toggle("hidden", f.tgRule.value !== "index");
+    const psl = !idx || f.slRule.value === "premium", ptg = !idx || f.tgRule.value === "premium";
+    d.querySelector(".pt-psl").classList.toggle("hidden", !psl); d.querySelector(".pt-ptg").classList.toggle("hidden", !ptg);
+    d.querySelector(".pt-sltm").classList.toggle("hidden", !(psl || ptg));
+    d.querySelector(".pt-idxlbl").textContent = `When ${under}`;
+    const rng = d.querySelector(".pt-range"), lp = price();
+    if (bandOn && !trigAnchor && +f.limit.value > 0) {
+      const c = +f.limit.value, lo = c * (1 - tol / 100), hi = c * (1 + tol / 100), inside = lp != null && lp >= lo && lp <= hi;
+      rng.innerHTML = `Range <b>${fmt(lo)} – ${fmt(hi)}</b> (±${fmt(tol, 1)}% of ${fmt(c)})${lp != null ? ` · now ${fmt(lp)} <span class="${inside ? "up" : "dn"}">${inside ? (idx ? "inside" : "inside: fills now") : "outside: order waits"}</span>` : ""}`;
+    } else if (bandOn && trigAnchor) rng.innerHTML = `Range = ±${fmt(tol, 1)}% of the option price when ${esc(under)} triggers${lp != null ? ` (now ${fmt(lp * (1 - tol / 100))} – ${fmt(lp * (1 + tol / 100))})` : ""}`;
+    else rng.textContent = st.tab === "opt" && st.etype === "limit" ? "Tolerance 0: plain limit order at this price" : "";
+    rng.classList.toggle("hidden", !rng.textContent);
     d.querySelector(".pt-side").className = `seg sm grow pt-side ${st.side}`;
     const note = d.querySelector(".pt-symnote");
     note.textContent = st.tab === "sym" ? (INDEX.has(chartSym) ? `${chartSym} is an index: this paper trade tracks the index points (not a tradable instrument).` : `Trade ${chartSym} at its live price.`) : "";
@@ -148,7 +214,8 @@ function openTicket(o = {}) {
     const avail = acct?.available, short = avail != null && e && e * qty > avail;
     d.querySelector(".pt-sum").innerHTML = (avail != null ? `Available <b class="${short ? "dn" : ""}">₹${fmt(avail)}</b>${short ? " · not enough capital" : ""}<br>` : "") + (e ? `Value ₹${fmt(e * qty)}${lv.sl != null ? ` · SL ${fmt(lv.sl)} risk <span class="dn">₹${fmt(risk)}</span>` : ""}${lv.target != null ? ` · TGT ${fmt(lv.target)} reward <span class="up">₹${fmt(rew)}</span>` : ""}${risk && rew ? ` · R:R 1:${fmt(rew / risk, 1)}` : ""}` : "");
     const go = d.querySelector(".pt-go");
-    go.textContent = `${st.side === "buy" ? "Buy" : "Sell"} ${sym() || ""}${st.etype === "market" && px ? ` @ ${fmt(px)}` : ""}`;
+    go.textContent = idx ? `${st.side === "buy" ? "Buy" : "Sell"} when ${under} closes ${st.dir} ${f.level.value || "?"}`
+      : `${st.side === "buy" ? "Buy" : "Sell"} ${sym() || ""}${st.etype === "market" && px ? ` @ ${fmt(px)}` : ""}`;
     go.className = `primary pt-go ${st.side}`;
     go.disabled = !sym() || (st.tab === "opt" && !st.optOk) || short;
   }
@@ -202,11 +269,13 @@ function openTicket(o = {}) {
     const tb = e.target.closest(".pt-tabs [data-t]"); if (tb) { setTab(tb.dataset.t); return; }
     const b = e.target.closest(".seg[data-k] button"); if (!b) return;
     const k = b.closest(".seg").dataset.k; st[k] = b.dataset.v;
-    if (k === "etype" && st.etype === "limit" && !f.limit.value) { const p = price(); if (p) f.limit.value = (+p).toFixed(2); }
+    if (k === "etype" && st.etype === "limit" && !f.limit.value) { const p = price(); if (p) f.limit.value = (+p).toFixed(2); }   // locked: the range stays on this price
+    if (k === "side" || k === "right") st.dir = bullOf(st.side, st.right) ? "above" : "below";
     if (k === "right" || k === "money") resolve(); else paint();
   });
   f.n.onchange = f.exp.onchange = f.step.onchange = () => resolve();
   f.addEventListener("input", (e) => { if (!["n", "exp", "step"].includes(e.target.name)) paint(); });
+  f.slRule.onchange = f.tgRule.onchange = f.anchor.onchange = () => paint();
   timer = setInterval(() => { if (st.tab === "opt" && st.opt) resolve(true); else paint(); }, 3000);
   loadMeta();                                   // also gives the lot size when the chart is an option
   paint();
@@ -215,18 +284,32 @@ function openTicket(o = {}) {
     e.preventDefault();
     const s = sym(); if (!s) return;
     const px = price(), entry = st.etype === "limit" ? parseFloat(f.limit.value) : px, lv = levels(entry);
-    if (st.etype === "limit" && !Number.isFinite(entry)) { err("Enter a limit price"); return; }
+    const idx = st.tab === "opt" && st.when === "index", tol = +f.tol.value || 0, band = st.tab === "opt" && st.etype === "limit" && tol > 0;
+    const anchor = idx && band ? f.anchor.value : "now";
+    if (st.etype === "limit" && anchor === "now" && !Number.isFinite(entry)) { err("Enter a limit price"); return; }
+    if (idx && st.etype === "limit" && !band) { err("Set a tolerance above 0 % for an index-triggered limit"); return; }
+    if (idx && !(+f.level.value > 0)) { err(`Enter the ${under} trigger level`); return; }
     const body = { symbol: s, side: st.side, lots: +f.lots.value || 1, lotSize: +f.lotSize.value || 1, entryType: st.etype, limit: st.etype === "limit" ? entry : null,
       price: px, sl: lv.sl, target: lv.target, show: f.show.checked, under: st.tab === "opt" ? under : (FNO_RE.exec(s)?.[1] || null),
       spot: st.tab === "opt" ? st.opt?.spot : null, src: app.srcFor(s) };
+    if (band) Object.assign(body, { entryType: "band", limit: null, band: { pct: tol, anchor, center: anchor === "now" ? entry : null } });
+    if (idx) {
+      body.cond = { under, tf: +f.tf.value, dir: st.dir, level: +f.level.value };
+      body.rules = { sl: { mode: f.slRule.value, value: +f.slIdx.value || null }, target: { mode: f.tgRule.value, k: +f.tgK.value || 2, value: +f.tgIdx.value || null } };
+      if (f.slRule.value !== "premium") body.sl = null;
+      if (f.tgRule.value !== "premium") body.target = null;
+      if (body.rules.sl.mode === "index" && !body.rules.sl.value) { err("Enter the index SL level"); return; }
+      if (body.rules.target.mode === "index" && !body.rules.target.value) { err("Enter the index target level"); return; }
+    }
     const go = d.querySelector(".pt-go"); go.disabled = true; go.textContent = "Placing…";
     try {
       const t = await api("/trades", { method: "POST", body });
-      Object.assign(PREF, { right: st.right, money: st.money, n: +f.n.value, lots: body.lots, side: st.side, slMode: st.slMode, show: f.show.checked, watch: f.watch.checked, tab: st.tab });
+      Object.assign(PREF, { right: st.right, money: st.money, n: +f.n.value, lots: body.lots, side: st.side, slMode: st.slMode, show: f.show.checked, watch: f.watch.checked, tab: st.tab,
+        when: st.when, tol: tol, anchor: f.anchor.value, tf: +f.tf.value, slRule: f.slRule.value, tgRule: f.tgRule.value, tgK: +f.tgK.value || 2 });
       savePref();
       if (st.tab === "opt" && f.watch.checked) app.addToWatchlist(s);
       replace(t);
-      const msg = t.status === "open" ? `Paper ${label(t)} filled @ ${fmt(t.entry)}` : `Paper ${label(t)} limit ${fmt(t.limit)} placed`;
+      const msg = t.status === "open" ? `Paper ${label(t)} filled @ ${fmt(t.entry)}` : `Paper ${label(t)} ${pendingText(t)} placed`;
       stick(msg, t.id); side.notify(msg);
       d.close();
       side.show("trades");
@@ -275,10 +358,13 @@ function modify(t, focus = "sl") {
   const d = document.createElement("dialog");
   const ltp = ltpOf(t.symbol);
   d.innerHTML = `<form method="dialog" class="dlg pt"><div class="dlg-head"><b>${esc(t.symbol)}</b><button value="cancel">✕</button></div><div class="pt-body">
-    <p class="muted">${esc(label(t))} @ ${fmt(t.entry ?? t.limit)} · LTP ${fmt(ltp)}</p>
+    <p class="muted">${esc(label(t))} @ ${t.entry != null ? fmt(t.entry) : esc(pendingText(t))} · LTP ${fmt(ltp)}</p>
     <div class="srow"><span>Stop loss</span><span class="ctl"><input name="sl" class="grow" type="number" step="0.05" value="${t.sl ?? ""}" placeholder="none"></span></div>
     <div class="srow"><span>Target</span><span class="ctl"><input name="target" class="grow" type="number" step="0.05" value="${t.target ?? ""}" placeholder="none"></span></div>
-    ${t.status === "open" ? `<div class="srow"><span>Exit limit</span><span class="ctl"><input name="exitLimit" class="grow" type="number" step="0.05" value="${t.exitLimit ?? ""}" placeholder="none"></span></div>` : ""}
+    ${t.engine === "server" && t.cond ? `<div class="srow"><span>Index SL</span><span class="ctl"><input name="idxSl" class="grow" type="number" step="0.05" value="${t.idxSl ?? ""}" placeholder="${t.cond.phase === "armed" ? "set at trigger" : "none"}" ${t.cond.phase === "armed" ? "disabled" : ""}></span></div>
+      <div class="srow"><span>Index target</span><span class="ctl"><input name="idxTarget" class="grow" type="number" step="0.05" value="${t.idxTarget ?? ""}" placeholder="${t.cond.phase === "armed" ? "set at trigger" : "none"}" ${t.cond.phase === "armed" ? "disabled" : ""}></span></div>
+      ${t.cond.phase === "armed" ? `<div class="srow"><span>Trigger level</span><span class="ctl"><input name="level" class="grow" type="number" step="0.05" value="${t.cond.level}"></span></div>` : ""}` : ""}
+    ${t.status === "open" && t.engine !== "server" ? `<div class="srow"><span>Exit limit</span><span class="ctl"><input name="exitLimit" class="grow" type="number" step="0.05" value="${t.exitLimit ?? ""}" placeholder="none"></span></div>` : ""}
     <div class="tvl-err pt-err"></div></div>
     <div class="dlg-foot"><span class="spacer"></span><button value="cancel">Cancel</button><button value="ok" class="primary">Save</button></div></form>`;
   document.body.appendChild(d);
@@ -288,6 +374,7 @@ function modify(t, focus = "sl") {
     e.preventDefault();
     const body = { sl: f.sl.value || null, target: f.target.value || null };
     if (f.exitLimit) body.exitLimit = f.exitLimit.value || null;
+    for (const k of ["idxSl", "idxTarget", "level"]) if (f[k] && !f[k].disabled && String(f[k].value) !== String(k === "level" ? t.cond.level : t[k] ?? "")) body[k] = f[k].value || null;
     try { replace(await api(`/trades/${t.id}`, { method: "PATCH", body })); d.close(); } catch (ex) { d.querySelector(".pt-err").textContent = ex.message; }
   };
   d.onclose = () => d.remove();
@@ -335,6 +422,7 @@ function render() {
     <div class="pt-tot"><div><small>Open P&L</small><b class="${cls(unreal)}">${money(unreal)}</b></div>
       <div><small>Booked today</small><b class="${cls(real)}">${money(real)}</b></div>
       <div title="All booked P&L since capital was set, before ₹${a.brokerage} × ${a.orders} orders brokerage"><small>Booked total</small><b class="${cls(a.booked)}">${money(a.booked)}</b></div></div>
+    ${engNote ? `<p class="dn pt-engnote">⚠ ${esc(engNote)}</p>` : ""}
     <div class="tabs pt-ptabs"><button data-tab="open" class="${tab === "open" ? "on" : ""}">Open ${open.length || ""}</button><button data-tab="closed" class="${tab === "closed" ? "on" : ""}">Closed ${done.length || ""}</button></div>
     ${list.length ? list.slice(0, 200).map(row).join("") : `<p class="muted sp-empty">${tab === "open" ? "No open paper trades. Use ＋, the Trade button, or Shift + P on a chart." : "No closed trades."}</p>`}`;
 }
@@ -350,10 +438,11 @@ function times(t) {     // buy and sell time stamps of every trade
 }
 function row(t) {
   const px = ltpOf(t.symbol), p = pnlOf(t, px), base = t.entry ? t.entry * t.qty : null;
-  const st = t.status === "pending" ? `Limit ${fmt(t.limit)} · waiting` : t.status === "cancelled" ? "Cancelled" :
+  const st = t.status === "pending" ? `${pendingText(t)} · waiting` : t.status === "cancelled" ? `Cancelled${t.exitReason && t.exitReason !== "cancelled" ? ` (${{ expired: "expired", invalidated: "SL before fill", missed: "target before fill" }[t.exitReason] || t.exitReason})` : ""}` :
     t.status === "closed" ? `${fmt(t.entry)} → ${fmt(t.exit)} · ${{ sl: "SL hit", target: "Target hit", limit: "Exit limit", market: "Exited" }[t.exitReason] || t.exitReason}` :
     `${fmt(t.entry)} → <b>${fmt(px)}</b>`;
-  const chips = t.status === "open" || t.status === "pending" ? `<span class="pt-chips">${t.sl != null ? `<i class="dn" data-a="sl">SL ${fmt(t.sl)}</i>` : '<i data-a="sl">+ SL</i>'}${t.target != null ? `<i class="up" data-a="target">TGT ${fmt(t.target)}</i>` : '<i data-a="target">+ TGT</i>'}${t.exitLimit != null ? `<i data-a="exitLimit">Exit @ ${fmt(t.exitLimit)}</i>` : ""}</span>` : "";
+  const ix = t.engine === "server" && (t.status === "open" || t.status === "pending") ? `<span class="pt-chips">${t.cond?.phase === "armed" ? `<i data-a="level" title="Trigger level">⚡ ${esc(t.cond.under)} ${t.cond.dir} ${fmt(t.cond.level)}</i>` : ""}${t.idxSl != null ? `<i class="dn" data-a="idxSl" title="Index SL (candle close)">iSL ${fmt(t.idxSl)}</i>` : ""}${t.idxTarget != null ? `<i class="up" data-a="idxTarget" title="Index target">iTGT ${fmt(t.idxTarget)}</i>` : ""}</span>` : "";
+  const chips = t.status === "open" || t.status === "pending" ? ix + `<span class="pt-chips">${t.sl != null ? `<i class="dn" data-a="sl">SL ${fmt(t.sl)}</i>` : '<i data-a="sl">+ SL</i>'}${t.target != null ? `<i class="up" data-a="target">TGT ${fmt(t.target)}</i>` : '<i data-a="target">+ TGT</i>'}${t.exitLimit != null ? `<i data-a="exitLimit">Exit @ ${fmt(t.exitLimit)}</i>` : ""}</span>` : "";
   const acts = t.status === "open" ? `<button data-a="exitLimit" title="Exit at a limit price">Exit limit</button><button data-a="exit" class="pt-x" title="Exit now at market">Exit</button>`
     : t.status === "pending" ? '<button data-a="exit" class="pt-x" title="Cancel the limit entry">Cancel</button>' : '<button data-a="del" title="Delete">✕</button>';
   return `<div class="pt-row ${t.status}" data-id="${t.id}">
@@ -369,7 +458,7 @@ function onPanelClick(e) {
   if (!t || !a) return;
   if (a === "pick") app.pick(t.symbol);
   else if (a === "eye") act(t, () => api(`/trades/${t.id}`, { method: "PATCH", body: { show: !t.show } }));
-  else if (a === "sl" || a === "target" || a === "exitLimit") modify(t, a);
+  else if (["sl", "target", "exitLimit", "idxSl", "idxTarget", "level"].includes(a)) modify(t, a);
   else if (a === "exit") {
     if (!document.body.classList.contains("m")) exitMarket(t);       // phones: confirm first (easy to mis-tap)
     else LTVSettings.confirm(`${t.status === "pending" ? "Cancel" : "Exit"} ${label(t)}${t.status === "pending" ? "" : " at market"}?`,
@@ -385,13 +474,23 @@ function linesFor(sym) {
     if (!t.show || !(t.status === "open" || t.status === "pending")) continue;
     if (t.symbol === sym) {
       const px = ltpOf(t.symbol), p = pnlOf(t, px), lead = `${t.side === "buy" ? "BUY" : "SELL"} ${t.qty}`;
-      if (t.status === "pending") out.push({ id: t.id, k: "limit", price: t.limit, color: "#2962ff", style: 2, title: `${lead} LMT` });
+      if (t.status === "pending" && t.band?.lo != null) {
+        out.push({ id: t.id, k: "bandHi", price: t.band.hi, color: "#2962ff", style: 2, title: `${lead} RANGE HI` }, { id: t.id, k: "bandLo", price: t.band.lo, color: "#2962ff", style: 2, title: `${lead} RANGE LO` });
+      } else if (t.status === "pending" && t.limit != null) out.push({ id: t.id, k: "limit", price: t.limit, color: "#2962ff", style: 2, title: `${lead} LMT` });
       else out.push({ id: t.id, k: "entry", price: t.entry, color: p == null ? "#2962ff" : p >= 0 ? "#089981" : "#f23645", style: 0, width: 2, title: `${lead} ${p == null ? "" : money(p)}` });
       const ref = t.entry ?? t.limit, at = (v) => money(sign(t) * (v - ref) * t.qty);
       if (t.sl != null) out.push({ id: t.id, k: "sl", price: t.sl, color: "#f23645", style: 2, title: `SL ${at(t.sl)}`, drag: true });
       if (t.target != null) out.push({ id: t.id, k: "target", price: t.target, color: "#089981", style: 2, title: `TGT ${at(t.target)}`, drag: true });
       if (t.exitLimit != null) out.push({ id: t.id, k: "exitLimit", price: t.exitLimit, color: "#ff9800", style: 2, title: `EXIT LMT ${at(t.exitLimit)}`, drag: true });
-    } else if (t.under === sym && t.spot && t.symbol !== sym && t.status === "open") {   // option trade drawn on its underlying at the entry spot
+    }
+    if (t.engine === "server" && t.cond && t.cond.under === sym && t.symbol !== sym) {      // index trigger / index SL / index target on the underlying
+      const m = FNO_RE.exec(t.symbol), nm = m ? `${m[3]} ${m[4]}` : t.symbol;
+      if (t.cond.phase === "armed") out.push({ id: t.id, k: "level", price: t.cond.level, color: "#ff9800", style: 2, title: `⚡ ${t.side === "buy" ? "BUY" : "SELL"} ${nm} ${TFN(t.cond.tf)} close ${t.cond.dir}`, drag: true });
+      if (t.idxSl != null) out.push({ id: t.id, k: "idxSl", price: t.idxSl, color: "#f23645", style: 2, title: `iSL ${nm} (close)`, drag: true });
+      if (t.idxTarget != null) out.push({ id: t.id, k: "idxTarget", price: t.idxTarget, color: "#089981", style: 2, title: `iTGT ${nm}`, drag: true });
+    }
+    if (t.symbol === sym) continue;
+    if (t.under === sym && t.spot && t.symbol !== sym && t.status === "open" && !(t.engine === "server" && t.cond)) {   // option trade drawn on its underlying at the entry spot
       const p = pnlOf(t), m = FNO_RE.exec(t.symbol);
       out.push({ id: t.id, k: "spot", price: t.spot, color: p == null ? "#787b86" : p >= 0 ? "#089981" : "#f23645", style: 1,
         title: `${t.side === "buy" ? "▲" : "▼"} ${m ? `${m[3]} ${m[4]}` : t.symbol} ×${t.qty} ${p == null ? "" : money(p)}` });
