@@ -93,6 +93,8 @@ def _list(folder: Path, kind: str):
     out = []
     for p in sorted(folder.glob("*.py")):
         code = p.read_text(encoding="utf-8")
+        if re.search(r"""__name__\s*==\s*['"]__main__['"]""", code):
+            continue  # command-line tool (e.g. scripts/prefetch_index.py), not an indicator
         out.append({"id": f"{kind}:{p.stem}", "name": p.stem, "kind": kind, "title": title_of(code, p.stem)})
     return out
 
