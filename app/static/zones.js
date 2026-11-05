@@ -179,12 +179,14 @@ function init({ chart, el, series, bars, tf, leftOffset = () => 0, objects = () 
       const k = keyOf(t), my = st[k] || {};
       const collapsed = my.c ?? phone();                      // phones start collapsed, desktop expanded
       const pos = my.pos || t.position || "top_right";
-      const head = t.title || (t.rows?.[0] || []).map((c) => c.text).filter(Boolean).slice(0, 2).join(": ") || "Dashboard";
+      const r0 = (t.rows?.[0] || []).map((c) => c.text).filter(Boolean);
+      const full = t.title || r0.slice(0, 2).join(": ") || "Dashboard";
+      const head = collapsed && !t.title && r0.length > 1 ? r0.slice(1).join(" ") : full;   // collapsed: just the headline value, small pill
       const rows = (t.title ? t.rows : t.rows.slice(1)).map((row) => `<tr>${row.map((c) =>
         `<td style="${c.bg ? `background:${esc(c.bg)};` : ""}${c.color ? `color:${esc(c.color)};` : ""}${c.bold ? "font-weight:600;" : ""}">${esc(c.text)}</td>`).join("")}</tr>`).join("");
       return `<div class="ind-table pos-${esc(pos)}${collapsed ? " collapsed" : ""}" data-i="${i}" data-k="${esc(k)}">` +
         `<div class="it-head" title="Drag to a corner · click to ${collapsed ? "expand" : "collapse"}"><button class="it-tg" data-a="tg">${collapsed ? "▸" : "▾"}</button>` +
-        `<span class="it-title">${esc(head)}</span><button class="it-mv" data-a="mv" title="Move to the next corner">⤢</button></div>` +
+        `<span class="it-title" title="${esc(full)}">${esc(head)}</span>${collapsed ? "" : '<button class="it-mv" data-a="mv" title="Move to the next corner (or drag)">⤢</button>'}</div>` +
         (collapsed ? "" : `<table>${rows}</table>`) + `</div>`;
     }).join("");
   }
@@ -194,7 +196,7 @@ function init({ chart, el, series, bars, tf, leftOffset = () => 0, objects = () 
     if (a === "mv") {
       const cur = CORNERS.find((c) => box.classList.contains("pos-" + c)) || "top_right";
       tSave(k, { pos: CORNERS[(CORNERS.indexOf(cur) + 1) % 4] });
-    } else if (e.target.closest(".it-head")) tSave(k, { c: !box.classList.contains("collapsed") });
+    } else if (e.target.closest(".it-head")) { tSave(k, { c: !box.classList.contains("collapsed") }); fitKey = ""; }
     else return;
     e.stopPropagation(); renderTables([{ tables: lastTbls }], true);
   });
@@ -220,13 +222,13 @@ function init({ chart, el, series, bars, tf, leftOffset = () => 0, objects = () 
     window.addEventListener("pointermove", move, true); window.addEventListener("pointerup", up, true);
     e.preventDefault(); e.stopPropagation();
   });
-  // first view of a data set: if an expanded dashboard sits on the right, scroll so the newest bars end left of it
+  // first view of a data set (and after expand / collapse): if a dashboard sits on the right, scroll so the newest bars end left of it
   let fitKey = "";
   function keepLastBarsClear() {
     const b = B(); if (!b.length || !tblHost.children.length) return;
     const k = b[0][0] + ":" + tf();
     if (k === fitKey) return;
-    const right = [...tblHost.querySelectorAll(".ind-table:not(.collapsed)")].filter((x) => /pos-(top|bottom|middle)_right/.test(x.className));
+    const right = [...tblHost.querySelectorAll(".ind-table")].filter((x) => /pos-(top|bottom|middle)_right/.test(x.className));
     fitKey = k;
     if (!right.length) return;
     const w = Math.max(...right.map((x) => x.offsetWidth)) + 16, ts = chart.timeScale();
