@@ -58,6 +58,12 @@ def make_source(name: str):
     return SOURCES[name]()
 
 
+
+def _ist_day_start(now) -> pd.Timestamp:
+    """Naive-UTC time of today's 00:00 IST, the label Breeze gives a daily bar (18:30 UTC of the previous day)."""
+    ist = pd.Timestamp(now).tz_convert("Asia/Kolkata").normalize()
+    return ist.tz_convert("UTC").tz_localize(None)
+
 class ChartSession:
     def __init__(self, send):
         self.send = send                      # async fn(dict)
@@ -104,6 +110,10 @@ class ChartSession:
             return
         if df.empty:
             raise ValueError(f"no data for {symbol} ({source}, tf={tf})")
+        if source == "breeze" and self.tf == 86400 and not lookback:
+            df = await self._with_today(df, symbol, sym)
+            if gen != self.gen:
+                return
         self.volume_src = None
         proxy = VOLUME_PROXY.get(sym.upper()) if source == "yf" else None
         if proxy and not df["volume"].any():
@@ -125,6 +135,34 @@ class ChartSession:
         for iid in list(self.indicators):
             await self.compute(iid)
         self._start_live(gen)
+
+    async def _with_today(self, df: pd.DataFrame, symbol: str, sym: str) -> pd.DataFrame:
+        """Breeze serves a day's daily bar only after the day is over, and after the close no ticks arrive to build
+        it live: append today's bar from today's 1m candles (not cached; the official bar replaces it later)."""
+        from datetime import datetime, timezone
+        from .candle_store import store_for
+        day0 = _ist_day_start(datetime.now(timezone.utc))
+        if df.empty or df.index[-1] >= day0:
+            return df
+        store = store_for(self.source, symbol, sym)
+        if store is None:
+            return df
+        try:
+            m = await asyncio.wait_for(store.ensure(datetime.now(timezone.utc).date()), 15)
+        except Exception as e:
+            log.info("today's daily bar for %s: %s", symbol, e)
+            return df
+        if not getattr(self.src, "extended", False):
+            from .breeze import session_only
+            from .symbols import is_fno
+            m = session_only(m, is_fno(symbol))
+        m = m[m.index >= day0]
+        if m.empty:
+            return df
+        bar = pd.DataFrame({"open": [float(m["open"].iloc[0])], "high": [float(m["high"].max())], "low": [float(m["low"].min())],
+                            "close": [float(m["close"].iloc[-1])], "volume": [float(m["volume"].fillna(0).sum())]},
+                           index=pd.DatetimeIndex([day0]).as_unit(df.index.unit))
+        return pd.concat([df, bar])
 
     # ------------------------------------------------------------ 1m candle store
     async def _cached_history(self, symbol: str, sym: str, gen: int) -> Optional[pd.DataFrame]:
@@ -852,7 +890,8 @@ class ChartSession:
             last_t = int(self.bars.time[-1])
             today = datetime.now(timezone.utc).date()
             if self.tf >= 86400:                         # daily / weekly: today's total on the last bar
-                if pd.Timestamp(last_t, unit="s").date() < (today if self.tf == 86400 else today - pd.Timedelta(days=7)):
+                today = (_ist_day_start(datetime.now(timezone.utc)) + pd.Timedelta(hours=5, minutes=30)).date()
+                if (pd.Timestamp(last_t, unit="s") + pd.Timedelta(hours=5, minutes=30)).date() < (today if self.tf == 86400 else today - pd.Timedelta(days=7)):
                     return
                 v = pd.Series([float(tot.sum())], index=pd.DatetimeIndex([pd.Timestamp(last_t, unit="s")]))
             else:
