@@ -558,6 +558,11 @@ html.embed #rail, html.fs #rail { display: none !important; }
 .pt-cap small, .pt-tot small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pt-cap b { font-size: 14px; }
 .pt-ptabs { margin: 4px 8px; }
+.pt-ptabs button { display: inline-flex; align-items: center; gap: 6px; }
+.pt-cnt { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
+.pt-cnt-pending { background: #f59e0b; }
+.pt-cnt-open { background: var(--accent); }
+.pt-cnt-closed { background: #8a8f98; }
 .pt-row { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .pt-row.closed, .pt-row.cancelled { opacity: .75; }
 .pt-r1 { display: flex; align-items: center; gap: 6px; }

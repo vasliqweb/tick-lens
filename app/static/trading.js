@@ -423,7 +423,7 @@ function render() {
       <div><small>Booked today</small><b class="${cls(real)}">${money(real)}</b></div>
       <div title="All booked P&L since capital was set, before ₹${a.brokerage} × ${a.orders} orders brokerage"><small>Booked total</small><b class="${cls(a.booked)}">${money(a.booked)}</b></div></div>
     ${engNote ? `<p class="dn pt-engnote">⚠ ${esc(engNote)}</p>` : ""}
-    <div class="tabs pt-ptabs"><button data-tab="open" class="${tab === "open" ? "on" : ""}">Open ${open.length || ""}</button><button data-tab="pending" class="${tab === "pending" ? "on" : ""}">Pending ${pend.length || ""}</button><button data-tab="closed" class="${tab === "closed" ? "on" : ""}">Closed ${done.length || ""}</button></div>
+    <div class="tabs pt-ptabs">${[["pending", "Pending", pend], ["open", "Open", open], ["closed", "Closed", done]].map(([k, n, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${n}${l.length ? `<span class="pt-cnt pt-cnt-${k}">${l.length}</span>` : ""}</button>`).join("")}</div>
     ${list.length ? list.slice(0, 200).map(row).join("") : `<p class="muted sp-empty">${tab === "open" ? "No open paper trades. Use ＋, the Trade button, or Shift + P on a chart." : tab === "pending" ? "No pending orders." : "No closed trades."}</p>`}`;
 }
 const ts = (x) => (x ? new Date(x * 1000).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "");
