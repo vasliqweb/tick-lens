@@ -24,7 +24,7 @@ from .scripting import ScriptError, run_script
 log = logging.getLogger("ltv")
 
 DEFAULT_LOOKBACK = {
-    "yf": {60: "7d", 120: "30d", 180: "7d", 300: "60d", 900: "60d", 1800: "60d", 3600: "730d", 86400: "10y", 604800: "max"},
+    "yf": {60: "7d", 120: "30d", 180: "7d", 300: "60d", 900: "60d", 1800: "60d", 3600: "730d", 86400: "10y", 604800: "max", 2592000: "max"},
     "nse": {86400: "1095d"},
     "ccxt": {},  # bar count
     "sim": {},
@@ -117,7 +117,7 @@ class ChartSession:
             return
         if df.empty:
             raise ValueError(f"no data for {symbol} ({source}, tf={tf})")
-        if source == "breeze" and self.tf == 86400 and not lookback:
+        if source == "breeze" and not lookback:
             df = await self._with_today(df, symbol, sym)
             if gen != self.gen:
                 return
@@ -144,31 +144,79 @@ class ChartSession:
         self._start_live(gen)
 
     async def _with_today(self, df: pd.DataFrame, symbol: str, sym: str) -> pd.DataFrame:
-        """Breeze serves a day's daily bar only after the day is over, and after the close no ticks arrive to build
-        it live: append today's bar from today's 1m candles (not cached; the official bar replaces it later)."""
+        """Make the chart's newest bar agree with today's session and, after 15:15 IST, with the official close
+        (the Breeze quote, the price the watchlist shows). Nothing here is written to a cache file.
+
+        Daily / weekly / monthly: Breeze serves a day's daily bar only after the day is over and no ticks arrive
+        after the close, so today's bar is built from today's 1m candles and merged into (or appended as) the
+        current day / week / month bar. Intraday: the session filter ends the bars at 15:15, so the last bar's close
+        moves to the quote (its high / low widen to that price only; no 15:15-15:30 bars are added)."""
+        from datetime import datetime, timezone
+        from .breeze import period_start
+        now = datetime.now(timezone.utc)
+        day0 = _ist_day_start(now)
+        if df.empty:
+            return df
+        if self.tf < 86400:
+            if df.index[-1] < day0 or not _past_cash_close(now):
+                return df
+            q = await self._closing_quote(sym)
+            if not q:
+                return df
+            df = df.astype("float64")
+            i, c = df.index[-1], float(q["last"])
+            df.loc[i, "close"] = c
+            df.loc[i, "high"] = max(float(df.loc[i, "high"]), c)
+            df.loc[i, "low"] = min(float(df.loc[i, "low"]), c)
+            return df
+        bucket = period_start(day0, self.tf)
+        last = df.index[-1]
+        if self.tf == 86400 and last >= day0:            # Breeze already has today's official bar
+            return df
+        if last > bucket:
+            return df
+        bar = await self._today_bar(symbol, sym, day0)
+        if bar is None:
+            return df
+        o, h, l, c, v = bar
+        if last < bucket:                                # first trading day of the week / month (or daily)
+            new = pd.DataFrame({"open": [o], "high": [h], "low": [l], "close": [c], "volume": [v]},
+                               index=pd.DatetimeIndex([bucket]).as_unit(df.index.unit))
+            return pd.concat([df, new])
+        # the current week / month bar exists: widen it with today (idempotent for high / low / close)
+        df = df.astype("float64")
+        df.loc[last, "high"] = max(float(df.loc[last, "high"]), h)
+        df.loc[last, "low"] = min(float(df.loc[last, "low"]), l)
+        df.loc[last, "close"] = c
+        if v and not await self._daily_cache_has(symbol, sym, day0):   # the week / month bar was built without today
+            df.loc[last, "volume"] = float(df.loc[last, "volume"] or 0) + v
+        return df
+
+    async def _today_bar(self, symbol: str, sym: str, day0: pd.Timestamp):
+        """(open, high, low, close, volume) for today from the 1m store, with the quote's close (and day open /
+        high / low when given) after 15:15 IST. None when the store has no candles for today."""
         from datetime import datetime, timezone
         from .candle_store import store_for
-        day0 = _ist_day_start(datetime.now(timezone.utc))
-        if df.empty or df.index[-1] >= day0:
-            return df
-        store = store_for(self.source, symbol, sym)
-        if store is None:
-            return df
-        try:
-            m = await asyncio.wait_for(store.ensure(datetime.now(timezone.utc).date()), 15)
-        except Exception as e:
-            log.info("today's daily bar for %s: %s", symbol, e)
-            return df
-        if not getattr(self.src, "extended", False):
-            from .breeze import session_only
-            from .symbols import is_fno
-            m = session_only(m, is_fno(symbol))
-        m = m[m.index >= day0]
         o = h = l = c = None
         v = 0.0
-        if not m.empty:
-            o, h, l, c = float(m["open"].iloc[0]), float(m["high"].max()), float(m["low"].min()), float(m["close"].iloc[-1])
-            v = float(m["volume"].fillna(0).sum())
+        store = store_for(self.source, symbol, sym)
+        m = None
+        if store is not None:
+            try:
+                m = await asyncio.wait_for(store.ensure(datetime.now(timezone.utc).date()), 15)
+            except Exception as e:
+                log.info("today's bar for %s: %s", symbol, e)
+        if m is not None and len(m):
+            if not getattr(self.src, "extended", False):
+                from .breeze import session_only
+                from .symbols import is_fno
+                m = session_only(m, is_fno(symbol))
+            m = m[m.index >= day0]
+            if not m.empty:
+                o, h, l, c = float(m["open"].iloc[0]), float(m["high"].max()), float(m["low"].min()), float(m["close"].iloc[-1])
+                v = float(m["volume"].fillna(0).sum())
+        if c is None:                                    # no candles today: weekend / holiday (the quote would be stale)
+            return None
         # The 1m store stops at 15:15 (closing auction filtered out), so after that the official close comes from
         # the quote (the same price the watchlist shows); its day open/high/low widen the bar when given.
         q = await self._closing_quote(sym) if _past_cash_close(datetime.now(timezone.utc)) else None
@@ -177,11 +225,17 @@ class ChartSession:
             o = q.get("open") or o or c
             h = max(x for x in (h, q.get("high"), c, o) if x)
             l = min(x for x in (l, q.get("low"), c, o) if x)
-        if c is None:
-            return df
-        bar = pd.DataFrame({"open": [o], "high": [h], "low": [l], "close": [c], "volume": [v]},
-                           index=pd.DatetimeIndex([day0]).as_unit(df.index.unit))
-        return pd.concat([df, bar])
+        return o, h, l, c, v
+
+    async def _daily_cache_has(self, symbol: str, sym: str, day0: pd.Timestamp) -> bool:
+        """True if the 1D cache file already holds today's official bar (so weekly / monthly bars include it)."""
+        from .candle_store import TFStore, folder_for
+        try:
+            st = TFStore(self.source, folder_for(self.source, symbol, sym), 86400, bool(getattr(self.src, "extended", False)))
+            d = await asyncio.to_thread(st.read)
+            return bool(len(d)) and d.index[-1] >= day0
+        except Exception:
+            return False
 
     async def _closing_quote(self, sym: str) -> Optional[dict]:
         """Breeze quote for the chart symbol, or None if unavailable / empty (e.g. F&O after hours)."""
@@ -466,7 +520,15 @@ class ChartSession:
         T = b.time[-1]
         if ts < T:
             return
-        k = int((ts - T) // self.tf)
+        if self.tf == 2592000:                               # months differ in length: bucket by IST calendar month
+            from .breeze import period_start
+            P = int(period_start(pd.Timestamp(ts, unit="s"), self.tf).value // 10**9)
+            k = 0 if P <= T else 1
+            if k:
+                self._append(P, price, price, price, price, vol)
+                return
+        else:
+            k = int((ts - T) // self.tf)
         if k == 0:
             b.high.update_last(max(b.high[-1], price))
             b.low.update_last(min(b.low[-1], price))
@@ -922,8 +984,9 @@ class ChartSession:
             today = datetime.now(timezone.utc).date()
             if self.tf >= 86400:                         # daily / weekly: today's total on the last bar
                 today = (_ist_day_start(datetime.now(timezone.utc)) + pd.Timedelta(hours=5, minutes=30)).date()
-                if (pd.Timestamp(last_t, unit="s") + pd.Timedelta(hours=5, minutes=30)).date() < (today if self.tf == 86400 else today - pd.Timedelta(days=7)):
-                    return
+                from .breeze import period_start
+                if self.tf > 604800 or pd.Timestamp(last_t, unit="s") < period_start(_ist_day_start(datetime.now(timezone.utc)), self.tf):
+                    return                               # monthly: today's total is not the month's volume
                 v = pd.Series([float(tot.sum())], index=pd.DatetimeIndex([pd.Timestamp(last_t, unit="s")]))
             else:
                 v = to_tf(pd.DataFrame({"open": tot, "high": tot, "low": tot, "close": tot, "volume": tot}), self.tf)["volume"]

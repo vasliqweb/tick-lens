@@ -8,7 +8,7 @@ const SLOT = Math.max(0, Math.min(3, +QS.get("slot") || 0));   // multi-chart la
 const EMBED = SLOT > 0;
 const SKEY = EMBED ? `ltv.state.${SLOT}` : "ltv.state";
 if (EMBED) document.documentElement.classList.add("embed");
-const TFS = [["1m", 60], ["3m", 180], ["5m", 300], ["15m", 900], ["30m", 1800], ["1h", 3600], ["1D", 86400], ["1W", 604800]];
+const TFS = [["1m", 60], ["3m", 180], ["5m", 300], ["15m", 900], ["30m", 1800], ["1h", 3600], ["1D", 86400], ["1W", 604800], ["1M", 2592000]];
 let TZ = 0;                                                // display offset of the chosen timezone (chart settings)
 const loc = (t) => t + TZ;
 

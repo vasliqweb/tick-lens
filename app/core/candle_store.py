@@ -299,16 +299,16 @@ def store_for(source: str, app_symbol: str, src_symbol: str) -> Optional[CandleS
 
 
 # ------------------------------------------------------------ higher timeframes, cached as served
-TF_NAME = {1800: "30m", 3600: "1h", 86400: "1D", 604800: "1W"}
-TF_TTL = {1800: 60.0, 3600: 60.0, 86400: 300.0, 604800: 900.0}     # seconds before asking the source for new bars
-TF_DAYS = {1800: 120, 3600: 240, 86400: 365 * 4, 604800: 365 * 12}  # first load depth (calendar days)
+TF_NAME = {1800: "30m", 3600: "1h", 86400: "1D", 604800: "1W", 2592000: "1M"}
+TF_TTL = {1800: 60.0, 3600: 60.0, 86400: 300.0, 604800: 900.0, 2592000: 900.0}   # seconds before asking the source for new bars
+TF_DAYS = {1800: 120, 3600: 240, 86400: 365 * 4, 604800: 365 * 12, 2592000: 365 * 20}  # first load depth (calendar days)
 
 
 def lookback_for(source: str, tf: int, days: int) -> str:
     """Calendar days -> the lookback argument each source's history() takes."""
     days = max(2, int(days))
     if source == "tv":
-        per_day = {1800: 48, 3600: 24, 86400: 1, 604800: 1 / 7}[tf]
+        per_day = {1800: 48, 3600: 24, 86400: 1, 604800: 1 / 7, 2592000: 1 / 30}[tf]
         return str(int(min(5000, max(10, days * per_day + 5))))
     if source == "yf" and tf in (1800, 3600):
         days = min(days, 729)                                 # Yahoo keeps 30m/1h for ~2 years

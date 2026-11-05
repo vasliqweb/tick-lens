@@ -188,7 +188,7 @@ window.LTVLayout = {
 // A saved layout = the grid + sync options + every chart's state (symbol, interval, style, indicators,
 // chart settings). Watchlists, theme and data source stay global.
 const GLOBAL_KEYS = ["watchlist", "watchlists", "wlActive", "wlWidth", "theme", "source", "breezeOk", "breezeInit", "volInit", "rpSpeed"];
-const TFN = { 60: "1", 180: "3", 300: "5", 900: "15", 1800: "30", 3600: "60", 86400: "D", 604800: "W" };
+const TFN = { 60: "1", 180: "3", 300: "5", 900: "15", 1800: "30", 3600: "60", 86400: "D", 604800: "W", 2592000: "M" };
 let cur = { id: null, name: "Unnamed", autosave: true };
 try { cur = { ...cur, ...JSON.parse(localStorage.getItem("ltv.cur") || "{}") }; } catch { /* */ }
 let recent = [];

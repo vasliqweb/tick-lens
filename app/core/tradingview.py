@@ -36,7 +36,7 @@ SEARCH_URL = "https://symbol-search.tradingview.com/symbol_search/v3/"
 HEADERS = {"Origin": "https://www.tradingview.com", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
 GUEST = "unauthorized_user_token"
-INTERVAL = {60: "1", 180: "3", 300: "5", 900: "15", 1800: "30", 3600: "60", 86400: "1D", 604800: "1W"}
+INTERVAL = {60: "1", 180: "3", 300: "5", 900: "15", 1800: "30", 3600: "60", 86400: "1D", 604800: "1W", 2592000: "1M"}
 MAX_BARS = 5000
 QUOTE_FIELDS = ["lp", "ch", "chp", "volume", "prev_close_price", "lp_time", "description", "currency_code"]
 # app index names -> TradingView

@@ -39,10 +39,11 @@ IST = "Asia/Kolkata"
 
 # Breeze native candle intervals; other timeframes are resampled from the largest divisor.
 NATIVE = {60: "1minute", 300: "5minute", 1800: "30minute", 86400: "1day"}
-BASE_FOR_TF = {60: 60, 180: 60, 300: 300, 900: 300, 1800: 1800, 3600: 1800, 86400: 86400, 604800: 86400}
+MONTH = 2592000                              # "1M" timeframe id: calendar months (IST), not a fixed 30 days
+BASE_FOR_TF = {60: 60, 180: 60, 300: 300, 900: 300, 1800: 1800, 3600: 1800, 86400: 86400, 604800: 86400, MONTH: 86400}
 ROWS_PER_DAY = {60: 375, 300: 75, 1800: 13, 86400: 1}
 MAX_ROWS = 1000                              # Breeze returns at most 1000 candles per call
-DEFAULT_DAYS = {60: 5, 180: 10, 300: 30, 900: 60, 1800: 120, 3600: 240, 86400: 365 * 4, 604800: 365 * 12}
+DEFAULT_DAYS = {60: 5, 180: 10, 300: 30, 900: 60, 1800: 120, 3600: 240, 86400: 365 * 4, 604800: 365 * 12, MONTH: 365 * 20}
 # NSE continuous session in IST. 09:00-09:15 is pre-open and 15:15-15:30 the closing auction:
 # Breeze returns flat/zero-volume/spiky candles there, so (like TradingView) they are dropped.
 SESSION = os.environ.get("NSE_SESSION", "09:15-15:15")
@@ -760,12 +761,22 @@ def session_only(df: pd.DataFrame, fno: bool = False) -> pd.DataFrame:
     return df[(sod >= a) & (sod < b)]
 
 
+def period_start(t: pd.Timestamp, tf: int) -> pd.Timestamp:
+    """Naive-UTC start of the daily / weekly (Monday) / monthly bar holding naive-UTC time t, in IST."""
+    ist = pd.Timestamp(t).tz_localize("UTC").tz_convert(IST).normalize()
+    if tf == 604800:
+        ist -= pd.Timedelta(days=ist.dayofweek)
+    elif tf == MONTH:
+        ist = ist.replace(day=1)
+    return ist.tz_convert("UTC").tz_localize(None)
+
+
 def resample(df: pd.DataFrame, tf: int) -> pd.DataFrame:
     if df.empty:
         return df
-    if tf == 604800:
+    if tf in (604800, MONTH):
         ist = df.tz_localize("UTC").tz_convert(IST)
-        out = ist.resample("W-MON", label="left", closed="left").agg(
+        out = ist.resample("W-MON" if tf == 604800 else "MS", label="left", closed="left").agg(
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
         out.index = out.index.tz_convert("UTC").tz_localize(None)
         return out.dropna(subset=["close"])

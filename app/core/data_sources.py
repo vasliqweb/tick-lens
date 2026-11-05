@@ -48,7 +48,7 @@ class DataSource:
 
 # ---------------------------------------------------------------------------
 class YFinanceSource(DataSource):
-    _TF = {60: "1m", 120: "2m", 300: "5m", 900: "15m", 1800: "30m", 3600: "60m", 86400: "1d", 604800: "1wk"}
+    _TF = {60: "1m", 120: "2m", 300: "5m", 900: "15m", 1800: "30m", 3600: "60m", 86400: "1d", 604800: "1wk", 2592000: "1mo"}
 
     async def history(self, symbol, tf=60, lookback="5d"):
         import yfinance as yf

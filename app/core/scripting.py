@@ -293,7 +293,8 @@ def run_script(code: str, df: pd.DataFrame, inputs: Optional[Dict[str, Any]] = N
         (86400 = trading day, 604800 = week), shifted one HTF bar and spread back onto chart bars."""
         tf = int(tf)
         key = session_day if tf == 86400 else (session_day - pd.to_timedelta(session_day.dt.dayofweek, unit="D")
-                                               if tf == 604800 else local_time.dt.floor(f"{tf}s"))
+                                               if tf == 604800 else session_day.dt.to_period("M").dt.start_time
+                                               if tf == 2592000 else local_time.dt.floor(f"{tf}s"))
         g = df.groupby(key.values)
         htf = pd.DataFrame({"open": g["open"].first(), "high": g["high"].max(), "low": g["low"].min(),
                             "close": g["close"].last(), "volume": g["volume"].sum()})
