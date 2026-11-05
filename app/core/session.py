@@ -64,6 +64,9 @@ def _ist_day_start(now) -> pd.Timestamp:
     ist = pd.Timestamp(now).tz_convert("Asia/Kolkata").normalize()
     return ist.tz_convert("UTC").tz_localize(None)
 
+_QUOTE_CACHE: Dict[str, tuple] = {}                   # symbol -> (fetched at, Breeze quote), see _closing_quote
+
+
 def _past_cash_close(now) -> bool:
     """True from 15:15 IST (start of the closing auction, where the session-filtered 1m store ends)."""
     ist = pd.Timestamp(now).tz_convert("Asia/Kolkata")
@@ -238,16 +241,27 @@ class ChartSession:
             return False
 
     async def _closing_quote(self, sym: str) -> Optional[dict]:
-        """Breeze quote for the chart symbol, or None if unavailable / empty (e.g. F&O after hours)."""
-        try:
-            from .breeze import BreezeHub
-            hub = BreezeHub.get()
-            info = await hub.resolve(sym)
-            q = await asyncio.wait_for(hub.quote(info["isec"], info.get("fno")), 8)
-        except Exception as e:
-            log.info("closing quote for %s: %s", sym, e)
-            return None
-        return q if q and (q.get("last") or 0) > 0 else None
+        """Breeze quote for the chart symbol, or None if unavailable / empty (e.g. F&O after hours).
+        Breeze's get_quotes fails now and then (empty body), so it is retried, and a good quote is reused for a
+        minute so switching timeframes does not call it again."""
+        hit = _QUOTE_CACHE.get(sym)
+        if hit and time.time() - hit[0] < 60:
+            return hit[1]
+        from .breeze import BreezeHub
+        for delay in (0, 1, 2):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                hub = BreezeHub.get()
+                info = await hub.resolve(sym)
+                q = await asyncio.wait_for(hub.quote(info["isec"], info.get("fno")), 8)
+            except Exception as e:
+                log.info("closing quote for %s: %s", sym, e)
+                continue
+            if q and (q.get("last") or 0) > 0:
+                _QUOTE_CACHE[sym] = (time.time(), q)
+                return q
+        return None
 
     # ------------------------------------------------------------ 1m candle store
     async def _cached_history(self, symbol: str, sym: str, gen: int) -> Optional[pd.DataFrame]:
