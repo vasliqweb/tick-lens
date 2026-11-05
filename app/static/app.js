@@ -19,6 +19,8 @@ const DEFAULT = {
   watchlist: ["NIFTY", "BANKNIFTY", "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN"],   // app names, any source
 };
 let S;
+let HAD_STATE = false;
+try { HAD_STATE = !!localStorage.getItem(SKEY); } catch { /* storage unavailable */ }
 try { S = Object.assign({}, DEFAULT, JSON.parse(localStorage.getItem(SKEY) || "{}")); } catch { S = { ...DEFAULT }; }
 // One name per instrument for every source (server maps RELIANCE -> RELIANCE.NS / RELIND, NIFTY -> ^NSEI / NIFTY)
 const IDX_ALIASES = { "^NSEI": "NIFTY", "^NSEBANK": "BANKNIFTY", "CNXBAN": "BANKNIFTY", "NIFTY_FIN_SERVICE.NS": "FINNIFTY",
@@ -2291,9 +2293,12 @@ for (const it of saved) {
   const ind = { ...it, style: it.style || {}, series: [], plotColors: [], lines: [], markers: [], meta: null, error: null, sig: "", visible: it.visible !== false };
   inds.set(ind.id, ind); S.indicators.push(ind);
 }
-if (!saved.length) {
-  // first run: a couple of defaults
-  Promise.all(["builtin:ema", "builtin:rsi"].map((id) => fetch(`/api/scripts/${id}`).then((r) => r.json())))
+// first run only (nothing saved yet): a couple of defaults. An empty list the user made by removing
+// everything is remembered as empty, so reloads never bring the defaults back.
+if (!S.indInit) {
+  S.indInit = true;
+  save();
+  if (!HAD_STATE && !saved.length) Promise.all(["builtin:ema", "builtin:rsi"].map((id) => fetch(`/api/scripts/${id}`).then((r) => r.json())))
     .then((list) => list.forEach((s) => addIndicator({ ref: s.id, code: s.code })));
 }
 renderIndLegend();
