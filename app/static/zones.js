@@ -161,16 +161,77 @@ function init({ chart, el, series, bars, tf, leftOffset = () => 0, objects = () 
   }
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  function renderTables(all) {
+  // ---- dashboards (Pine table.new): collapsible, movable to any corner, state per table in localStorage
+  const TKEY = "ltv.tables";
+  const tState = () => { try { return JSON.parse(localStorage.getItem(TKEY)) || {}; } catch { return {}; } };
+  const tSave = (k, v) => { try { const a = tState(); a[k] = { ...(a[k] || {}), ...v }; localStorage.setItem(TKEY, JSON.stringify(a)); } catch { /* storage unavailable */ } };
+  const phone = () => document.body.classList.contains("m") || matchMedia("(max-width: 768px)").matches;
+  const CORNERS = ["top_right", "bottom_right", "bottom_left", "top_left"];
+  const keyOf = (t) => String(t.title || t.rows?.[0]?.[0]?.text || "table").slice(0, 60);
+  let lastTbls = [];
+  function renderTables(all, force) {
     const tbls = all.flatMap((o) => o.tables || []);
     const sig = JSON.stringify(tbls);
-    if (sig === tblSig) return;
-    tblSig = sig;
-    tblHost.innerHTML = tbls.map((t) => {
-      const rows = t.rows.map((row) => `<tr>${row.map((c) =>
+    if (sig === tblSig && !force) return;
+    tblSig = sig; lastTbls = tbls;
+    const st = tState();
+    tblHost.innerHTML = tbls.map((t, i) => {
+      const k = keyOf(t), my = st[k] || {};
+      const collapsed = my.c ?? phone();                      // phones start collapsed, desktop expanded
+      const pos = my.pos || t.position || "top_right";
+      const head = t.title || (t.rows?.[0] || []).map((c) => c.text).filter(Boolean).slice(0, 2).join(": ") || "Dashboard";
+      const rows = (t.title ? t.rows : t.rows.slice(1)).map((row) => `<tr>${row.map((c) =>
         `<td style="${c.bg ? `background:${esc(c.bg)};` : ""}${c.color ? `color:${esc(c.color)};` : ""}${c.bold ? "font-weight:600;" : ""}">${esc(c.text)}</td>`).join("")}</tr>`).join("");
-      return `<div class="ind-table pos-${esc(t.position || "top_right")}">${t.title ? `<div class="it-title">${esc(t.title)}</div>` : ""}<table>${rows}</table></div>`;
+      return `<div class="ind-table pos-${esc(pos)}${collapsed ? " collapsed" : ""}" data-i="${i}" data-k="${esc(k)}">` +
+        `<div class="it-head" title="Drag to a corner · click to ${collapsed ? "expand" : "collapse"}"><button class="it-tg" data-a="tg">${collapsed ? "▸" : "▾"}</button>` +
+        `<span class="it-title">${esc(head)}</span><button class="it-mv" data-a="mv" title="Move to the next corner">⤢</button></div>` +
+        (collapsed ? "" : `<table>${rows}</table>`) + `</div>`;
     }).join("");
+  }
+  tblHost.addEventListener("click", (e) => {
+    const box = e.target.closest(".ind-table"); if (!box || box._dragged) return;
+    const k = box.dataset.k, a = e.target.closest("[data-a]")?.dataset.a;
+    if (a === "mv") {
+      const cur = CORNERS.find((c) => box.classList.contains("pos-" + c)) || "top_right";
+      tSave(k, { pos: CORNERS[(CORNERS.indexOf(cur) + 1) % 4] });
+    } else if (e.target.closest(".it-head")) tSave(k, { c: !box.classList.contains("collapsed") });
+    else return;
+    e.stopPropagation(); renderTables([{ tables: lastTbls }], true);
+  });
+  // drag the header: the panel follows the pointer and snaps to the nearest corner on release
+  tblHost.addEventListener("pointerdown", (e) => {
+    const head = e.target.closest(".it-head"); if (!head || e.target.closest("button") || e.button > 0) return;
+    const box = head.parentElement, hr = tblHost.getBoundingClientRect(), br = box.getBoundingClientRect();
+    const d = { x: e.clientX, y: e.clientY, dx: e.clientX - br.left, dy: e.clientY - br.top, moved: false };
+    box._dragged = false;
+    const move = (ev) => {
+      if (!d.moved && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 6) return;
+      d.moved = true; box._dragged = true;
+      box.style.cssText = `left:${ev.clientX - hr.left - d.dx}px;top:${ev.clientY - hr.top - d.dy}px;right:auto;bottom:auto;transform:none`;
+    };
+    const up = (ev) => {
+      window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", up, true);
+      if (!d.moved) return;
+      const cx = ev.clientX - hr.left, cy = ev.clientY - hr.top;
+      tSave(box.dataset.k, { pos: `${cy < hr.height / 2 ? "top" : "bottom"}_${cx < hr.width / 2 ? "left" : "right"}` });
+      renderTables([{ tables: lastTbls }], true);
+      setTimeout(() => { box._dragged = false; }, 0);
+    };
+    window.addEventListener("pointermove", move, true); window.addEventListener("pointerup", up, true);
+    e.preventDefault(); e.stopPropagation();
+  });
+  // first view of a data set: if an expanded dashboard sits on the right, scroll so the newest bars end left of it
+  let fitKey = "";
+  function keepLastBarsClear() {
+    const b = B(); if (!b.length || !tblHost.children.length) return;
+    const k = b[0][0] + ":" + tf();
+    if (k === fitKey) return;
+    const right = [...tblHost.querySelectorAll(".ind-table:not(.collapsed)")].filter((x) => /pos-(top|bottom|middle)_right/.test(x.className));
+    fitKey = k;
+    if (!right.length) return;
+    const w = Math.max(...right.map((x) => x.offsetWidth)) + 16, ts = chart.timeScale();
+    const spacing = ts.options().barSpacing || 6, need = Math.ceil(w / spacing);
+    if (ts.scrollPosition() < need) ts.scrollToPosition(need, false);
   }
   function placeTables() {
     const off = leftOffset();
@@ -202,6 +263,7 @@ function init({ chart, el, series, bars, tf, leftOffset = () => 0, objects = () 
     try {
       resize();
       placeTables();
+      keepLastBarsClear();
       const sig = viewSig();
       if (dirty || sig !== lastSig) { lastSig = sig; dirty = false; render(); }
     } catch (e) { if (!frame.err) console.error("zones:", e); frame.err = 1; }
