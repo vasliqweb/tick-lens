@@ -408,12 +408,12 @@ function render() {
       ], r.left - 240, r.bottom + 4);
     }
   };
-  const open = trades.filter((t) => t.status === "open" || t.status === "pending");
+  const open = trades.filter((t) => t.status === "open"), pend = trades.filter((t) => t.status === "pending");
   const done = trades.filter((t) => t.status === "closed" || t.status === "cancelled");
   const unreal = open.reduce((s, t) => s + (pnlOf(t) || 0), 0);
   const today = trades.filter((t) => t.status === "closed" && isToday(t.exitAt));
   const real = today.reduce((s, t) => s + (t.pnl || 0), 0);
-  const list = tab === "open" ? open : done;
+  const list = tab === "open" ? open : tab === "pending" ? pend : done;
   const a = acct || { capital: 0, balance: 0, available: 0, blocked: 0, booked: 0, fees: 0, orders: 0, brokerage: 0 };
   const equity = a.balance + unreal, ret = a.capital ? (equity - a.capital) / a.capital * 100 : 0;
   body.innerHTML = `<div class="pt-cap"><div><small>Equity</small><b>₹${fmt(equity)}</b><small class="${cls(ret)}">${ret >= 0 ? "+" : ""}${fmt(ret)}%</small></div>
@@ -423,8 +423,8 @@ function render() {
       <div><small>Booked today</small><b class="${cls(real)}">${money(real)}</b></div>
       <div title="All booked P&L since capital was set, before ₹${a.brokerage} × ${a.orders} orders brokerage"><small>Booked total</small><b class="${cls(a.booked)}">${money(a.booked)}</b></div></div>
     ${engNote ? `<p class="dn pt-engnote">⚠ ${esc(engNote)}</p>` : ""}
-    <div class="tabs pt-ptabs"><button data-tab="open" class="${tab === "open" ? "on" : ""}">Open ${open.length || ""}</button><button data-tab="closed" class="${tab === "closed" ? "on" : ""}">Closed ${done.length || ""}</button></div>
-    ${list.length ? list.slice(0, 200).map(row).join("") : `<p class="muted sp-empty">${tab === "open" ? "No open paper trades. Use ＋, the Trade button, or Shift + P on a chart." : "No closed trades."}</p>`}`;
+    <div class="tabs pt-ptabs"><button data-tab="open" class="${tab === "open" ? "on" : ""}">Open ${open.length || ""}</button><button data-tab="pending" class="${tab === "pending" ? "on" : ""}">Pending ${pend.length || ""}</button><button data-tab="closed" class="${tab === "closed" ? "on" : ""}">Closed ${done.length || ""}</button></div>
+    ${list.length ? list.slice(0, 200).map(row).join("") : `<p class="muted sp-empty">${tab === "open" ? "No open paper trades. Use ＋, the Trade button, or Shift + P on a chart." : tab === "pending" ? "No pending orders." : "No closed trades."}</p>`}`;
 }
 const ts = (x) => (x ? new Date(x * 1000).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "");
 function times(t) {     // buy and sell time stamps of every trade
@@ -444,7 +444,7 @@ function condLine(t) {  // "Index Close" trades: the index condition, its trigge
   if (c.signal) parts.push(`triggered ${ts(c.triggeredAt).split(", ").pop()} @ close ${fmt(c.signal.c)} (H ${fmt(c.signal.h)} L ${fmt(c.signal.l)})`);
   else if (t.status === "pending") parts.push("waiting for candle close");
   const r = t.rules || {}, slm = r.sl?.mode, tgm = r.target?.mode;
-  const slTxt = { prevLow: "prev candle " + (t.side === "buy" ? "low" : "high"), prevClose: "prev candle close", index: "index level", premium: "option premium", none: "none" }[slm] || "none";
+  const slTxt = { prevLow: "prev candle " + (bullOf(t.side, t.symbol.endsWith("CE") ? "CE" : "PE") ? "low" : "high"), prevClose: "prev candle close", index: "index level", premium: "option premium", none: "none" }[slm] || "none";
   const tgTxt = { range: `${fmt(r.target?.k, 1)}× trigger candle range`, index: "index level", premium: "option premium", none: "none" }[tgm] || "none";
   const lv = (now, first) => now != null ? (first != null && first !== now ? ` ${fmt(first)} → ${fmt(now)}` : ` ${fmt(now)}`) : "";
   parts.push(`iSL: ${slTxt}${slm === "premium" || slm === "none" ? "" : lv(t.idxSl, trig?.idxSl)} (on ${TFN(c.tf)} close)`);
