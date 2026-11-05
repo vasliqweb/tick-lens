@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -287,6 +288,56 @@ async def tv_logout():
     AUTH.logout()
     await TVHub.get().restart()
     return {"user": None}
+
+
+# ---------------------------------------------------------------- synced browser state
+# The browser's "ltv.*" settings (indicators, drawings, watchlists, chart styles...) mirrored here so every
+# device opens the same charts. One JSON file: {"rev": n, "keys": {key: {"v": str|None, "rev": n, "t": ms}}}.
+STATE_FILE = ROOT / "userstate" / "state.json"
+STATE_FILE.parent.mkdir(exist_ok=True)
+_state_lock = threading.Lock()
+STATE_KEY_RE = re.compile(r"^ltv\.[^\x00-\x1f]{1,200}$")
+STATE_MAX = 4_000_000                 # bytes per value
+
+
+def _state_load() -> dict:
+    try:
+        d = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        if isinstance(d.get("keys"), dict):
+            return d
+    except Exception:
+        pass
+    return {"rev": 0, "keys": {}}
+
+
+@app.get("/api/state")
+def get_state(since: int = 0):
+    with _state_lock:
+        d = _state_load()
+    keys = {k: e["v"] for k, e in d["keys"].items() if e.get("rev", 0) > since}
+    return {"rev": d["rev"], "keys": keys}
+
+
+@app.put("/api/state")
+def put_state(body: dict = Body(...)):
+    keys = body.get("keys") or {}
+    if not isinstance(keys, dict):
+        raise HTTPException(400, "keys must be an object")
+    with _state_lock:
+        d = _state_load()
+        now = int(time.time() * 1000)
+        for k, v in keys.items():
+            if not STATE_KEY_RE.match(k) or (v is not None and (not isinstance(v, str) or len(v) > STATE_MAX)):
+                continue
+            old = d["keys"].get(k)
+            if old and old["v"] == v:
+                continue
+            d["rev"] += 1
+            d["keys"][k] = {"v": v, "rev": d["rev"], "t": now}
+        tmp = STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d), encoding="utf-8")
+        os.replace(tmp, STATE_FILE)
+        return {"rev": d["rev"]}
 
 
 # ---------------------------------------------------------------- saved layouts
