@@ -776,3 +776,4 @@ body.m .lg-ind { pointer-events: none; }                       /* only the name 
 body.m .lg-ind .t, body.m .lg-ind button { pointer-events: auto; }
 body.m #navBar, body.m .pane-btns { display: none !important; }   /* phones pinch / drag instead; these sat in the middle of the chart and caught taps */
 body.m #drawFloat { top: auto; bottom: 4px; left: 64px; right: 8px; transform: none; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }   /* bottom dock: keeps the price pane free */
+body.m .ind-table:not(.collapsed) { max-width: calc(100% - 16px); font-size: 11px; }
