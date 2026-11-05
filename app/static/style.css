@@ -601,6 +601,7 @@ html.embed #rail, html.fs #rail { display: none !important; }
 .vp-tooltip .vp-tt-r, .vp-tooltip .vp-tt-l { color: #9598a1; font-size: 10px; margin-top: 2px; }
 .vp-tooltip .vp-tt-v { color: #5d606b; font-size: 9px; margin-top: 4px; }
 .vp-tooltip td:first-child { white-space: nowrap; }
+.pt-cond { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); margin-top: 2px; padding-left: 6px; border-left: 2px solid #ff9800; font-variant-numeric: tabular-nums; }
 .pt-ts { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ form dialogs: one label column, controls fill the rest */

@@ -95,7 +95,7 @@ function pendingText(t) {
   if (t.engine !== "server") return `Limit ${fmt(t.limit)}`;
   const b = t.band, c = t.cond;
   const how = b ? (b.lo != null ? `range ${fmt(b.lo)} – ${fmt(b.hi)}` : `±${fmt(b.pct, 1)}% range at trigger`) : "market";
-  if (c && c.phase === "armed") return `When ${c.under} ${TFN(c.tf)} closes ${c.dir} ${fmt(c.level)} → ${how}`;
+  if (c && c.phase === "armed") return `Waiting for ${c.under} close → ${how}`;
   if (c) return `Triggered @ ${fmt(c.signal?.c)} → ${how}`;
   return `Limit ${how}`;
 }
@@ -187,7 +187,7 @@ function openTicket(o = {}) {
     const slOpts = [["prevLow", `Index closes ${up} previous candle ${bull ? "low" : "high"}`], ["prevClose", `Index closes ${up} previous candle close`],
       ["index", `Index closes ${up} level`], ["premium", "Option premium"], ["none", "None"]];
     const tgOpts = [["range", "Index: k × trigger candle range"], ["index", "Index reaches level"], ["premium", "Option premium"], ["none", "None"]];
-    for (const [sel, opts, def] of [[f.slRule, slOpts, PREF.slRule || "prevLow"], [f.tgRule, tgOpts, PREF.tgRule || "range"]]) {
+    for (const [sel, opts, def] of [[f.slRule, slOpts, PREF.slRule || "prevLow"], [f.tgRule, tgOpts, PREF.tgRule2 || "none"]]) {
       const v = sel.value || def;
       sel.innerHTML = opts.map(([k, l]) => `<option value="${k}">${l}</option>`).join(""); sel.value = v;
     }
@@ -305,7 +305,7 @@ function openTicket(o = {}) {
     try {
       const t = await api("/trades", { method: "POST", body });
       Object.assign(PREF, { right: st.right, money: st.money, n: +f.n.value, lots: body.lots, side: st.side, slMode: st.slMode, show: f.show.checked, watch: f.watch.checked, tab: st.tab,
-        when: st.when, tol: tol, anchor: f.anchor.value, tf: +f.tf.value, slRule: f.slRule.value, tgRule: f.tgRule.value, tgK: +f.tgK.value || 2 });
+        when: st.when, tol: tol, anchor: f.anchor.value, tf: +f.tf.value, slRule: f.slRule.value, tgRule2: f.tgRule.value, tgK: +f.tgK.value || 2 });
       savePref();
       if (st.tab === "opt" && f.watch.checked) app.addToWatchlist(s);
       replace(t);
@@ -436,6 +436,21 @@ function times(t) {     // buy and sell time stamps of every trade
   if (t.status === "cancelled") parts.push(`Cancelled ${ts(t.exitAt)}`);
   return parts.length ? `<div class="pt-ts">${parts.map((p) => `<span>${p}</span>`).join("")}</div>` : "";
 }
+function condLine(t) {  // "Index Close" trades: the index condition, its trigger candle and the index SL / target
+  const c = t.engine === "server" && t.cond;
+  if (!c) return "";
+  const trig = (t.events || []).find((e) => e.e === "triggered");
+  const parts = [`⚡ When ${esc(c.under)} ${TFN(c.tf)} closes ${c.dir} ${fmt(c.level)}`];
+  if (c.signal) parts.push(`triggered ${ts(c.triggeredAt).split(", ").pop()} @ close ${fmt(c.signal.c)} (H ${fmt(c.signal.h)} L ${fmt(c.signal.l)})`);
+  else if (t.status === "pending") parts.push("waiting for candle close");
+  const r = t.rules || {}, slm = r.sl?.mode, tgm = r.target?.mode;
+  const slTxt = { prevLow: "prev candle " + (t.side === "buy" ? "low" : "high"), prevClose: "prev candle close", index: "index level", premium: "option premium", none: "none" }[slm] || "none";
+  const tgTxt = { range: `${fmt(r.target?.k, 1)}× trigger candle range`, index: "index level", premium: "option premium", none: "none" }[tgm] || "none";
+  const lv = (now, first) => now != null ? (first != null && first !== now ? ` ${fmt(first)} → ${fmt(now)}` : ` ${fmt(now)}`) : "";
+  parts.push(`iSL: ${slTxt}${slm === "premium" || slm === "none" ? "" : lv(t.idxSl, trig?.idxSl)} (on ${TFN(c.tf)} close)`);
+  parts.push(`iTGT: ${tgTxt}${tgm === "premium" || tgm === "none" ? "" : lv(t.idxTarget, trig?.idxTarget)}`);
+  return `<div class="pt-cond">${parts.map((p) => `<span>${p}</span>`).join("")}</div>`;
+}
 function row(t) {
   const px = ltpOf(t.symbol), p = pnlOf(t, px), base = t.entry ? t.entry * t.qty : null;
   const st = t.status === "pending" ? `${pendingText(t)} · waiting` : t.status === "cancelled" ? `Cancelled${t.exitReason && t.exitReason !== "cancelled" ? ` (${{ expired: "expired", invalidated: "SL before fill", missed: "target before fill" }[t.exitReason] || t.exitReason})` : ""}` :
@@ -449,7 +464,7 @@ function row(t) {
     <div class="pt-r1"><b class="${t.side === "buy" ? "up" : "dn"}">${t.side === "buy" ? "B" : "S"} ${t.qty}</b> <b class="pt-sym" data-a="pick" title="Open chart: ${esc(t.symbol)}">${esc(t.symbol)}</b>
       <button data-a="eye" class="pt-eye ${t.show ? "on" : ""}" title="${t.show ? "Hide from chart" : "Show on chart"}">${t.show ? "👁" : "◌"}</button>
       <span class="pt-pnl ${cls(p)}">${p == null ? "" : money(p)}${p != null && base ? `<small> ${fmt(p / base * 100, 1)}%</small>` : ""}</span></div>
-    <div class="pt-r2 muted">${st}</div>${times(t)}${chips}<div class="pt-acts">${acts}</div></div>`;
+    <div class="pt-r2 muted">${st}</div>${condLine(t)}${times(t)}${chips}<div class="pt-acts">${acts}</div></div>`;
 }
 function onPanelClick(e) {
   const tb = e.target.closest("[data-tab]"); if (tb) { tab = tb.dataset.tab; render(); return; }
