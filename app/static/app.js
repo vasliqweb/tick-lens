@@ -150,49 +150,64 @@ function paintTradeLines() {
   tradeLines = list.map((l) => ({ key: l.id + l.k, spec: l, line: mainSeries.createPriceLine({ price: l.price, color: l.color, lineWidth: l.width || 1,
     lineStyle: l.style ?? 2, axisLabelVisible: true, title: l.title }) }));
 }
-function tradeLineAt(y) {
+// trade / order lines are moved only by their price-axis label, never by the line itself (the chart pans / zooms freely over the lines)
+function onPriceAxis(x) {
+  const left = !!chart.options().leftPriceScale?.visible, w = chart.priceScale(left ? "left" : "right").width();
+  const W = $("#chart").getBoundingClientRect().width;
+  return w > 0 && (left ? x <= w : x >= W - w);
+}
+function tradeLineAt(x, y) {
+  if (!onPriceAxis(x)) return null;
+  const tol = document.body.classList.contains("m") ? 14 : 10;     // half the height of the axis label box
   let best = null;
   for (const l of tradeLines) {
     if (!l.spec.drag) continue;
     const ly = mainSeries.priceToCoordinate(l.spec.price);
-    if (ly != null && Math.abs(ly - y) <= (document.body.classList.contains("m") ? 16 : 5) && (!best || Math.abs(ly - y) < best.d)) best = { l, d: Math.abs(ly - y) };
+    if (ly != null && Math.abs(ly - y) <= tol && (!best || Math.abs(ly - y) < best.d)) best = { l, d: Math.abs(ly - y) };
   }
   return best?.l || null;
 }
 {
   const wrapEl = $("#chartWrap"), chartEl = $("#chart");
-  const yOf = (e) => e.clientY - chartEl.getBoundingClientRect().top;
+  const xy = (e) => { const r = chartEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const LBL = { sl: "SL", target: "TGT", exitLimit: "EXIT LMT" };
   wrapEl.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || !mainSeries || !tradeLines.length) return;
-    const l = tradeLineAt(yOf(e)); if (!l) return;
+    if (tradeDrag || e.button !== 0 || !mainSeries || !tradeLines.length) return;
+    const l = tradeLineAt(...xy(e)); if (!l) return;
     e.preventDefault(); e.stopPropagation();
-    tradeDrag = { l, scroll: chart.options().handleScroll, scale: chart.options().handleScale };
+    tradeDrag = { l, pid: e.pointerId, moved: false };
     chart.applyOptions({ handleScroll: false, handleScale: false });
-    wrapEl.setPointerCapture?.(e.pointerId);
+    try { wrapEl.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
   }, true);
   wrapEl.addEventListener("pointermove", (e) => {
     if (!mainSeries) return;
-    const y = yOf(e);
+    const [x, y] = xy(e);
     if (tradeDrag) {
-      e.stopPropagation();
+      e.stopPropagation(); e.preventDefault();
       const p = mainSeries.coordinateToPrice(y); if (p == null) return;
-      const px = Math.round(p * 20) / 20;
-      tradeDrag.l.spec.price = px;
-      tradeDrag.l.line.applyOptions({ price: px, title: `${tradeDrag.l.spec.k === "sl" ? "SL" : tradeDrag.l.spec.k === "target" ? "TGT" : "EXIT LMT"} ${fmt(px, mainPrecision())}` });
+      const px = Math.round(p * 20) / 20, l = tradeDrag.l;
+      if (px !== l.spec.price) tradeDrag.moved = true;
+      l.spec.price = px;
+      l.line.applyOptions({ price: px, title: LBL[l.spec.k] ? `${LBL[l.spec.k]} ${fmt(px, mainPrecision())}` : l.spec.title });
       return;
     }
-    if (tradeLines.length) chartEl.style.cursor = tradeLineAt(y) ? "ns-resize" : "";
+    if (tradeLines.length) chartEl.style.cursor = tradeLineAt(x, y) ? "ns-resize" : "";
   }, true);
-  const end = (e) => {
+  // always hand pan / zoom back to the chart (also when the pointer is lost: pointercancel, capture lost, window blur)
+  const end = (e, commit = true) => {
     if (!tradeDrag) return;
-    e.stopPropagation();
-    const { l, scroll, scale } = tradeDrag;
+    e?.stopPropagation?.();
+    const { l, moved, pid } = tradeDrag;
     tradeDrag = null;
-    chart.applyOptions({ handleScroll: scroll, handleScale: scale });
-    window.top.LTVTrade?.setLevel(l.spec.id, l.spec.k, l.spec.price);
+    chart.applyOptions({ handleScroll: true, handleScale: true });
+    try { wrapEl.releasePointerCapture(pid); } catch { /* not captured */ }
+    if (commit && moved) window.top.LTVTrade?.setLevel(l.spec.id, l.spec.k, l.spec.price);
+    else paintTradeLines();
   };
-  wrapEl.addEventListener("pointerup", end, true);
-  wrapEl.addEventListener("pointercancel", end, true);
+  wrapEl.addEventListener("pointerup", (e) => end(e), true);
+  wrapEl.addEventListener("pointercancel", (e) => end(e, false), true);
+  wrapEl.addEventListener("lostpointercapture", (e) => end(e), true);
+  window.addEventListener("blur", () => end(null, false));
 }
 // price alerts of this symbol as dashed lines (alerts live in the host page's sidebar)
 let alertLines = [];
