@@ -706,6 +706,17 @@ class ChartSession:
                 d = d[d.index < pd.Timestamp(int(t[-1]), unit="s")]
             return d
 
+        def money_flow():
+            """Rupee money flow (core/money_flow.py) for this chart's days, or None (Breeze charts only)."""
+            if self.source != "breeze" or self.bars is None or not len(self.bars.time):
+                return None
+            from .money_flow import flow_1m
+            t = self.bars.time.to_numpy()
+            d = flow_1m(self.symbol or "", pd.Timestamp(int(t[0]), unit="s"), pd.Timestamp(int(t[-1]) + self.tf, unit="s"))
+            if d is not None and self.rp:                       # bar replay: never show the future
+                d = d[d.index < pd.Timestamp(int(t[-1]) + self.tf, unit="s")]
+            return d
+
         def options():
             """Nearest-expiry index options 1m OI (core/options_oi.py) for this chart's days, or None.
             Kicks a non-blocking refresh of today's chain (live charts only, Breeze already logged in)."""
@@ -725,7 +736,7 @@ class ChartSession:
             return d
 
         return {"syminfo": info, "tf": self.tf, "lower_tf": lower_tf, "request": request, "breadth": breadth,
-                "options": options}
+                "options": options, "money_flow": money_flow}
 
     async def _fetch_other(self, source: str, sym: str, tf: int) -> pd.DataFrame:
         src = make_source(source)

@@ -276,6 +276,36 @@ def run_script(code: str, df: pd.DataFrame, inputs: Optional[Dict[str, Any]] = N
         out.index = df.index
         return out
 
+    def money_flow():
+        """Rupee money flow on chart bars (core/money_flow.py): DataFrame(buy, sell, net [Rs], tick_share [0..1 of
+        value classified from raw ticks; the rest is a candle close-location estimate], pos_share [index only:
+        share of NIFTY 50 stocks with positive session net flow at the bar's last minute], n) or None.
+        Breeze charts only (NIFTY / NIFTY FUT = sum of constituents; a stock = its own flow).
+        A bar sums only its own minutes; the forming bar is PROVISIONAL."""
+        fn = ctx.get("money_flow")
+        d = fn() if fn else None
+        if d is None or d.empty:
+            return None
+        d = d[~d.index.duplicated(keep="last")].sort_index()
+        bt = df.index.to_numpy()
+        k = np.searchsorted(bt, d.index.to_numpy(), side="right") - 1
+        end = bt + np.timedelta64(int(tf_sec), "s")
+        ok = (k >= 0)
+        ok[ok] &= d.index.to_numpy()[ok] < end[k[ok]]
+        d, k = d[ok], k[ok]
+        if d.empty:
+            return None
+        tv = (d.buy + d.sell) * d.tick_share.fillna(0)
+        g = pd.DataFrame({"k": k, "buy": d.buy.to_numpy(), "sell": d.sell.to_numpy(), "tv": tv.to_numpy(),
+                          "pos_share": d.pos_share.to_numpy(), "n": d.n.to_numpy()}).groupby("k")
+        out = pd.DataFrame({"buy": g.buy.sum(), "sell": g.sell.sum(), "tv": g.tv.sum(),
+                            "pos_share": g.pos_share.last(), "n": g.n.last()})
+        out["net"] = out.buy - out.sell
+        out["tick_share"] = (out.pop("tv") / (out.buy + out.sell).replace(0, np.nan)).clip(0, 1)
+        out = out.reindex(range(len(df)))
+        out.index = df.index
+        return out
+
     def options_chain():
         """Nearest-expiry index options, 1 minute, long format: DataFrame(time [UTC epoch s of the 1m candle],
         expiry, strike, right ['CE'/'PE'], close, volume, oi [NaN = not reported]) covering the chart's bars;
@@ -360,7 +390,7 @@ def run_script(code: str, df: pd.DataFrame, inputs: Optional[Dict[str, Any]] = N
         "na": math.nan,
         "syminfo": info, "timeframe": tf_sec, "local_time": local_time, "session_day": session_day,
         "session_minute": session_minute, "barcolor": barcolor, "box": box, "bubble": bubble, "label": label, "line": line,
-        "table": table, "profile": profile, "profile_spec": profile_spec, "vp": _vp_ns(), "lower_tf": lower_tf, "security": security, "request": request, "breadth": breadth, "options_chain": options_chain, "alert": alert,
+        "table": table, "profile": profile, "profile_spec": profile_spec, "vp": _vp_ns(), "lower_tf": lower_tf, "security": security, "request": request, "breadth": breadth, "money_flow": money_flow, "options_chain": options_chain, "alert": alert,
     }
     ns["source"] = lambda name: ns[name] if name in ("open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4") else close_err(name)
     try:
