@@ -118,7 +118,42 @@ def _token_stamp() -> str:
     return ""
 
 
-RENEW_COOLDOWN = 300          # after a failed auto-login, wait before asking for another OTP
+RENEW_BACKOFF = (300, 900)    # wait after the 1st / 2nd failed auto-login before asking for another OTP
+RENEW_MAX_FAILS = 3           # then stop asking until the next trading day or the Connect button
+TAKEOVER_SECS = 7200          # key dies again this soon after our own renewal -> another login replaced it
+AUTO_WINDOW = (8 * 60 + 30, 16 * 60)   # IST minutes, Mon-Fri: the only time an OTP is requested by itself
+
+
+def _auto_login_on() -> bool:
+    return os.environ.get("BREEZE_AUTO_LOGIN", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _ist_now():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(IST))
+
+
+def _in_auto_window(now) -> bool:
+    return now.weekday() < 5 and AUTO_WINDOW[0] <= now.hour * 60 + now.minute < AUTO_WINDOW[1]
+
+
+def _next_window(now):
+    """Start of the next auto-login window strictly after today's."""
+    d = now.replace(hour=AUTO_WINDOW[0] // 60, minute=AUTO_WINDOW[0] % 60, second=0, microsecond=0) + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _file_token(path: Path = ROOT / ".env") -> str:
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("BREEZE_SESSION_TOKEN="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
 
 
 _AUTH_ERRORS = ("session", "user details", "invalid user", "unauthor", "not authori", "login", "logged",
@@ -159,6 +194,11 @@ class BreezeHub:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._login_lock = asyncio.Lock()
         self._renew_failed_at = 0.0
+        self._renew_fails = 0               # failed auto-logins in a row
+        self._renewed_at = 0.0              # last successful renewal (takeover detection)
+        self._paused_until = 0.0            # auto-login off until then (gave up / taken over)
+        self._notice = ""                   # Telegram message queued by _auto_block
+        self._quiet_reason = ""             # last reason an auto-login was skipped (logged once)
         self.renewing, self.last_error = False, ""
         self._ws_lock = threading.Lock()
         self.ws_ok = False
@@ -203,21 +243,65 @@ class BreezeHub:
                             log.warning("resubscribe %s: %s", tok, e)
         return self.breeze
 
+    def _auto_block(self) -> str:
+        """Why an automatic OTP request must not happen now ("" = go ahead)."""
+        if not _auto_login_on():
+            return "auto-login is off on this machine (BREEZE_AUTO_LOGIN=0); press Connect in TickLens"
+        now, t = _ist_now(), time.time()
+        if t < self._paused_until:
+            from datetime import datetime
+            when = datetime.fromtimestamp(self._paused_until, now.tzinfo)
+            return f"auto-login paused until {when:%a %H:%M} IST; press Connect in TickLens"
+        if not _in_auto_window(now):
+            return "outside market hours; auto-login resumes 08:30 IST on the next trading day"
+        if self._renewed_at and t - self._renewed_at < TAKEOVER_SECS:
+            self._renewed_at, self._paused_until = 0.0, _next_window(now).timestamp()
+            self._notice = ("⚠️ the Breeze session was replaced by another login soon after it was renewed. "
+                   "Is TickLens also running on another machine with the same Breeze API key? Keep auto-login on one "
+                   "machine only (BREEZE_AUTO_LOGIN=0 in the other's .env). No more OTP requests until tomorrow 08:30 "
+                   "IST or until you press Connect.")
+            return "session taken over by another login; auto-login paused till the next trading day"
+        if self._renew_fails and t - self._renew_failed_at < RENEW_BACKOFF[min(self._renew_fails, len(RENEW_BACKOFF)) - 1]:
+            return "auto-login failed recently, retrying in a few minutes"
+        return ""
+
     async def _renew(self, manual: bool = False):
-        """Expired session key: log in again through Playwright + Telegram OTP (one attempt at a time)."""
-        from .breeze_login import renew
-        if not manual and time.time() - self._renew_failed_at < RENEW_COOLDOWN:
-            raise RuntimeError("Breeze session expired; auto-login failed recently, retrying in a few minutes")
+        """Expired session key: log in again through Playwright + Telegram OTP (one attempt at a time).
+        Automatic renewals run only on trading days near market hours, back off after failures, give up for the
+        day after RENEW_MAX_FAILS, and pause if another login keeps replacing the session."""
+        from .breeze_login import notify, renew
+        tok = _file_token()
+        if tok and tok != os.environ.get("BREEZE_SESSION_TOKEN"):   # .env got a newer token (pasted by hand)
+            os.environ["BREEZE_SESSION_TOKEN"] = tok
+            log.info("Breeze: using the newer session token found in .env")
+            return
+        if not manual:
+            why = self._auto_block()
+            if self._notice:
+                msg, self._notice = self._notice, ""
+                await asyncio.to_thread(notify, ROOT / ".env", msg)
+            if why:
+                if why != self._quiet_reason:
+                    log.warning("Breeze session expired; %s", why)
+                self._quiet_reason, self.last_error = why, f"Session expired: {why}"
+                raise RuntimeError(f"Breeze session expired; {why}")
         log.warning("Breeze: %s (OTP via Telegram)", "connecting" if manual else "session expired, renewing")
-        self.renewing, self.last_error = True, ""
+        self.renewing, self.last_error, self._quiet_reason = True, "", ""
         try:
             await renew(ROOT / ".env", CACHE / "login")
         except Exception as e:
-            self._renew_failed_at = time.time()
             self.last_error = str(e)[:300]
+            if not manual:
+                self._renew_fails += 1
+                self._renew_failed_at = time.time()
+                if self._renew_fails >= RENEW_MAX_FAILS:
+                    self._renew_fails, self._paused_until = 0, _next_window(_ist_now()).timestamp()
+                    await asyncio.to_thread(notify, ROOT / ".env", f"❌ Breeze auto-login failed {RENEW_MAX_FAILS} times (last: {e}). "
+                           "No more OTP requests until tomorrow 08:30 IST; press Connect in TickLens to log in sooner.")
             raise RuntimeError(f"Breeze auto-login failed: {e}") from None
         finally:
             self.renewing = False
+        self._renew_fails, self._paused_until, self._renewed_at = 0, 0.0, time.time()
 
     async def reconnect(self):
         """Connect button: fresh login + OTP even if the current key still works, then a new client."""

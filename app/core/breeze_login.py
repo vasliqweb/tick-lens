@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import re
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 OTP_WAIT = int(os.environ.get("BREEZE_OTP_WAIT", "90"))       # seconds to wait for the Telegram reply
 SESSION_STAMP = "# BREEZE_SESSION_TOKEN last updated: "
 TOKEN_KEYS = ("apisession", "apisessiontoken", "API_Session", "API_SessionToken", "APISESSION", "APISESSIONTOKEN")
+HOST = os.environ.get("BREEZE_INSTANCE") or socket.gethostname()   # tells PC and server messages apart
 REQUIRED = ("BREEZE_API_KEY", "BREEZE_USER_ID", "BREEZE_PASSWORD", "TELEGRAM_BOT_TOKEN")
 
 
@@ -125,7 +127,7 @@ async def _browser_login(env: Dict[str, str], tg: _Telegram, shots: Path) -> str
             tok = _token_from_url(page.url) or posted.get("token")
             if tok:
                 return tok
-            tg.send("🔐 TickLens: Breeze session expired. Reply with the OTP ICICI just sent you "
+            tg.send(f"🔐 TickLens ({HOST}): Breeze session expired. Reply with the OTP ICICI just sent you "
                     f"(waiting {OTP_WAIT}s).")
             log.info("Breeze login: waiting up to %ss for the OTP on Telegram", OTP_WAIT)
             otp = await asyncio.to_thread(tg.wait_otp, OTP_WAIT)
@@ -180,6 +182,14 @@ def _write_env(path: Path, token: str):
     path.write_text("".join(lines), encoding="utf-8")
 
 
+def notify(env_path: Path, text: str):
+    """One-off Telegram message (no OTP wait); silently skipped when Telegram is not configured."""
+    env = _read_env(env_path)
+    chat = env.get("TELEGRAM_HOME_CHANNEL") or env.get("TELEGRAM_CHAT_ID")
+    if env.get("TELEGRAM_BOT_TOKEN") and chat:
+        _Telegram(env["TELEGRAM_BOT_TOKEN"], chat).send(f"TickLens ({HOST}): {text}"[:400])
+
+
 async def renew(env_path: Path, shots: Path) -> str:
     """Log in again, store the new token in .env and os.environ, return it."""
     miss = missing_config(env_path)
@@ -187,13 +197,9 @@ async def renew(env_path: Path, shots: Path) -> str:
         raise RuntimeError("Breeze auto-login needs " + ", ".join(miss) + " in .env")
     env = _read_env(env_path)
     tg = _Telegram(env["TELEGRAM_BOT_TOKEN"], env.get("TELEGRAM_HOME_CHANNEL") or env.get("TELEGRAM_CHAT_ID"))
-    try:
-        token = await _browser_login(env, tg, shots)
-    except Exception as e:
-        tg.send(f"❌ TickLens: Breeze auto-login failed: {e}"[:300])
-        raise
+    token = await _browser_login(env, tg, shots)        # caller decides whether a failure is worth a message
     _write_env(env_path, token)
     os.environ["BREEZE_SESSION_TOKEN"] = token
-    tg.send("✅ TickLens: Breeze session renewed.")
+    tg.send(f"✅ TickLens ({HOST}): Breeze session renewed.")
     log.info("Breeze session token renewed")
     return token
