@@ -64,6 +64,12 @@ def _ist_day_start(now) -> pd.Timestamp:
     ist = pd.Timestamp(now).tz_convert("Asia/Kolkata").normalize()
     return ist.tz_convert("UTC").tz_localize(None)
 
+def _past_cash_close(now) -> bool:
+    """True from 15:15 IST (start of the closing auction, where the session-filtered 1m store ends)."""
+    ist = pd.Timestamp(now).tz_convert("Asia/Kolkata")
+    return ist.hour * 60 + ist.minute >= 15 * 60 + 15
+
+
 class ChartSession:
     def __init__(self, send):
         self.send = send                      # async fn(dict)
@@ -101,6 +107,7 @@ class ChartSession:
         sym = self.src_symbol
         self.src = make_source(source)
         self.src.extended = extended                          # include pre-open / closing-auction bars
+        self.src.daily = self.tf >= 86400                     # daily+: let closing-auction ticks reach the last bar
         lb = lookback if source == "breeze" else (
             lookback or DEFAULT_LOOKBACK.get(source, {}).get(self.tf) or ("1000" if source == "ccxt" else "3000"))
         df = await self._cached_history(symbol, sym, gen) if not lookback else None
@@ -157,12 +164,36 @@ class ChartSession:
             from .symbols import is_fno
             m = session_only(m, is_fno(symbol))
         m = m[m.index >= day0]
-        if m.empty:
+        o = h = l = c = None
+        v = 0.0
+        if not m.empty:
+            o, h, l, c = float(m["open"].iloc[0]), float(m["high"].max()), float(m["low"].min()), float(m["close"].iloc[-1])
+            v = float(m["volume"].fillna(0).sum())
+        # The 1m store stops at 15:15 (closing auction filtered out), so after that the official close comes from
+        # the quote (the same price the watchlist shows); its day open/high/low widen the bar when given.
+        q = await self._closing_quote(sym) if _past_cash_close(datetime.now(timezone.utc)) else None
+        if q:
+            c = q["last"]
+            o = q.get("open") or o or c
+            h = max(x for x in (h, q.get("high"), c, o) if x)
+            l = min(x for x in (l, q.get("low"), c, o) if x)
+        if c is None:
             return df
-        bar = pd.DataFrame({"open": [float(m["open"].iloc[0])], "high": [float(m["high"].max())], "low": [float(m["low"].min())],
-                            "close": [float(m["close"].iloc[-1])], "volume": [float(m["volume"].fillna(0).sum())]},
+        bar = pd.DataFrame({"open": [o], "high": [h], "low": [l], "close": [c], "volume": [v]},
                            index=pd.DatetimeIndex([day0]).as_unit(df.index.unit))
         return pd.concat([df, bar])
+
+    async def _closing_quote(self, sym: str) -> Optional[dict]:
+        """Breeze quote for the chart symbol, or None if unavailable / empty (e.g. F&O after hours)."""
+        try:
+            from .breeze import BreezeHub
+            hub = BreezeHub.get()
+            info = await hub.resolve(sym)
+            q = await asyncio.wait_for(hub.quote(info["isec"], info.get("fno")), 8)
+        except Exception as e:
+            log.info("closing quote for %s: %s", sym, e)
+            return None
+        return q if q and (q.get("last") or 0) > 0 else None
 
     # ------------------------------------------------------------ 1m candle store
     async def _cached_history(self, symbol: str, sym: str, gen: int) -> Optional[pd.DataFrame]:

@@ -55,6 +55,7 @@ def _span(spec):
 
 _s0, _s1 = _span(SESSION)
 _f0, _f1 = _span(FNO_SESSION)
+_c1 = _span("09:15-15:30")[1]                # official cash close (end of the closing auction)
 LIVE_CHUNK_TTL = 300                         # seconds to reuse today's (still changing) candles
 IVOL_CONCURRENCY = 6                                                # parallel constituent fetches (rate limiter still applies)
 CONSTITUENT_DAYS = {60: 3, 300: 12, 1800: 60, 86400: 1500}   # index-volume history depth per base interval
@@ -630,7 +631,8 @@ class BreezeHub:
                     return v
             return None
         return {"last": last, "prev": prev, "volume": float(q.get("total_quantity_traded") or 0),
-                "bid": num("best_bid_price"), "ask": num("best_offer_price")}
+                "bid": num("best_bid_price"), "ask": num("best_offer_price"),
+                "open": num("open"), "high": num("high"), "low": num("low")}
 
     # ------------------------------------------------------------ websocket
     async def subscribe(self, token: str, cb: Callable[[dict], None]) -> None:
@@ -744,6 +746,11 @@ def in_session(ts: float, fno: bool = False) -> bool:
     return a <= ts % 86400 < b
 
 
+def in_daily_session(ts: float, fno: bool = False) -> bool:
+    """Daily bars track the official close: like in_session, but cash ticks count until 15:30 IST (closing auction)."""
+    return in_session(ts, fno) or (not fno and _s0 <= ts % 86400 < _c1)
+
+
 def session_only(df: pd.DataFrame, fno: bool = False) -> pd.DataFrame:
     """Keep intraday candles that start inside the session (daily+ candles pass through)."""
     if df.empty or len(df.index) < 2 or (df.index[1:] - df.index[:-1]).min() >= pd.Timedelta(days=1):
@@ -792,7 +799,8 @@ class BreezeSource(DataSource):
 
         def cb(t):
             f = tick_fields(t)
-            if f["last"] != f["last"] or not (getattr(self, "extended", False) or in_session(time.time(), bool(info.get("fno")))):
+            ok = in_daily_session if getattr(self, "daily", False) else in_session
+            if f["last"] != f["last"] or not (getattr(self, "extended", False) or ok(time.time(), bool(info.get("fno")))):
                 return
             vol = 0.0
             if f["ttq"] == f["ttq"]:
