@@ -76,7 +76,15 @@ def main():
     today = sd == sd.iloc[j]
     b_t, s_t = float(buy[today].sum()) / CR, float(sell[today].sum()) / CR
     ts = float(tick[today].mul((buy + sell)[today]).sum() / max((buy + sell)[today].sum(), 1))
-    src = ("Ticks bid/ask %d%% | candle estimate %d%%" % (round(ts * 100), 100 - round(ts * 100))) if ts > 0 else "Candle estimate (no ticks)"
+    if ts > 0:
+        tk_today = np.flatnonzero((today & (tick > 0)).to_numpy())
+        mi = (int(df.index[tk_today[0]].value // 60_000_000_000) + 330) % 1440 if len(tk_today) else 0   # IST minute of day
+        since = "%02d:%02d" % (mi // 60, mi % 60)
+        pct_t = ("%.1f" % (ts * 100)) if ts < 0.1 else ("%d" % round(ts * 100))
+        pct_c = ("%.1f" % (100 - ts * 100)) if ts < 0.1 else ("%d" % (100 - round(ts * 100)))
+        src = "Ticks bid/ask %s%% (from %s IST) | candle estimate %s%%" % (pct_t, since, pct_c)
+    else:
+        src = "Candle estimate (no ticks)"
     lvl = "Observed (classified)" if ts >= 0.5 else "Estimated"
     fwj = fw.iloc[j]
     st = "STRONG " + ("INFLOW" if fwj > 0 else "OUTFLOW") if bool(strong.iloc[j]) else "normal"

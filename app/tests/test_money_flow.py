@@ -68,3 +68,18 @@ def test_suite_no_repaint():
         assert part["plots"][0]["colors"][:-1] == full["plots"][0]["colors"][:cut - 1]
     rows = [[c["text"] for c in r] for r in full["tables"][0]["rows"]]
     assert any(r[0] == "Evidence" and r[1] == "Estimated" for r in rows)            # candle estimate is labelled
+
+
+def test_suite_source_label_partial_ticks():
+    """Ticks that start mid-session are a small share of the day's value: show it with a decimal and the start time."""
+    code = (Path(__file__).resolve().parent.parent / "builtins" / "money_flow_suite.py").read_text()
+    df = _bars(150)
+    last_day = df.index[-1].normalize()
+    day_idx = df.index[df.index.normalize() == last_day]
+    mf_df = pd.DataFrame({"buy": 2e7, "sell": 1e7, "net": 1e7, "tick_share": 0.0, "pos_share": 0.6, "n": 50.0},
+                         index=day_idx)
+    mf_df.loc[day_idx[-1], "tick_share"] = 0.3                                     # ticks only in the last bar
+    rows = run_script(code, df, {}, None, {"syminfo": {}, "tf": 300, "money_flow": lambda: mf_df})["tables"][0]["rows"]
+    src = next(r[1]["text"] for r in rows if r[0]["text"] == "Source")
+    start = (day_idx[-1] + pd.Timedelta(hours=5, minutes=30)).strftime("%H:%M")
+    assert src.startswith("Ticks bid/ask ") and f"(from {start} IST)" in src and "." in src.split("%")[0], src
