@@ -1101,8 +1101,11 @@ let bz = { connected: false };
 const bzPaint = () => {
   const b = $("#bzBtn"); if (!b) return;
   b.classList.toggle("hidden", !S.breezeOk);
-  b.dataset.st = bz.renewing ? "wait" : bz.connected ? "on" : bz.error ? "err" : "off";
-  b.title = bz.renewing ? "Breeze: waiting for the OTP on Telegram" : bz.connected ? "Breeze connected" + (bz.updated ? ` · token from ${bz.updated}` : "")
+  const feedBad = bz.connected && bz.feed?.failed > 0;
+  b.dataset.st = bz.renewing ? "wait" : feedBad ? "err" : bz.connected ? "on" : bz.error ? "err" : "off";
+  b.title = bz.renewing ? "Breeze: waiting for the OTP on Telegram"
+    : feedBad ? `Breeze connected, but the live tick feed is refused for ${bz.feed.failed} symbols (charts use polled 1m candles, no ticks recorded): ${bz.feed.error} · click to reconnect`
+    : bz.connected ? "Breeze connected" + (bz.updated ? ` · token from ${bz.updated}` : "")
     : "Breeze not connected · click to connect";
 };
 const bzStatus = () => (EMBED ? Promise.resolve() : fetch("/api/breeze/status").then((r) => r.json()).then((d) => { bz = d; bzPaint(); }).catch(() => {}));
@@ -1115,6 +1118,7 @@ function openBreeze() {
   const body = d.querySelector(".tvl-body");
   const paint = (msg = "", busy = false) => {
     const st = busy || bz.renewing ? `${SPIN} Logging in… reply to the Telegram bot with the OTP ICICI sends you (90 s).`
+      : bz.connected && bz.feed?.failed > 0 ? `<span class="bz-dot off"></span> Connected, but the live tick feed is refused for ${bz.feed.failed} symbols. Reconnect to restore ticks.`
       : bz.connected ? `<span class="bz-dot on"></span> Connected${bz.updated ? ` · token from ${esc(bz.updated)}` : ""}` : `<span class="bz-dot off"></span> Not connected`;
     const miss = bz.missing?.length ? `<p class="tvl-why">Add to .env first: ${bz.missing.map(esc).join(", ")}</p>` : "";
     body.innerHTML = `<p>${st}</p>${miss}<p class="muted">Connect logs in to ICICI with your .env credentials and asks for the OTP on Telegram. The new session token is saved to .env.</p>

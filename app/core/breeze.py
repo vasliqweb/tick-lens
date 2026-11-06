@@ -160,6 +160,19 @@ _AUTH_ERRORS = ("session", "user details", "invalid user", "unauthor", "not auth
                 "api key", "apikey", "appkey", "checksum", "token", "credential", "customer details")
 
 
+def _feed_failed(res) -> str:
+    """subscribe_feeds() reports failures as a returned string ("Exception while subscribing to feeds Could not
+    authenticate credentials ...") instead of raising. Returns the error text, or "" when the subscription worked."""
+    t = str(res if not isinstance(res, dict) else (res.get("message") or res.get("Error") or res))
+    lt = t.lower()
+    if "success" in lt and "exception" not in lt:
+        return ""
+    return t[:300] if ("exception" in lt or "could not" in lt or "fail" in lt or _expired(lt)) else ""
+
+
+FEED_HEAL_GAP = 300.0                   # at most one automatic live-feed repair every 5 minutes
+
+
 def _expired(err) -> bool:
     """Breeze errors that mean the login is gone ("Session key is expired", "Invalid User Details", ...)."""
     t = str(err or "").lower()
@@ -202,6 +215,11 @@ class BreezeHub:
         self.renewing, self.last_error = False, ""
         self._ws_lock = threading.Lock()
         self.ws_ok = False
+        self.feed_bad: set = set()           # tokens whose last subscribe_feeds() was refused
+        self.feed_error = ""                 # why (shown in the Breeze status: REST can work while the feed is dead)
+        self._heal_at = 0.0
+        self._heal_tries = 0                 # repairs since the feed last worked: 1st new client, 2nd fresh login
+        self._healing = False
         self.limiter = RateLimiter(CALLS_PER_MIN)
         self.names_file = CACHE / "names.json"                # symbol -> {isec, token, name}
         try:
@@ -310,11 +328,15 @@ class BreezeHub:
         async with self._login_lock:
             await self._renew(manual=True)
             self.breeze, self.ws_ok = None, False
+            self.feed_bad.clear()
+            self.feed_error, self._heal_tries = "", 0
         await self.client()
 
     def status(self) -> dict:
         from .breeze_login import missing_config
-        return {"connected": self.breeze is not None, "renewing": self.renewing, "error": self.last_error,
+        return {"connected": self.breeze is not None, "renewing": self.renewing, "error": self.last_error or self.feed_error,
+                "feed": {"ok": len(self.subs) - len(self.feed_bad & set(self.subs)), "failed": len(self.feed_bad & set(self.subs)),
+                         "error": self.feed_error},
                 "missing": missing_config(ROOT / ".env"), "updated": _token_stamp()}
 
     async def call(self, fn: str, **kw):
@@ -747,6 +769,57 @@ class BreezeHub:
                 self.ws_ok = True
             res = b.subscribe_feeds(stock_token=token)
             log.info("subscribe %s -> %s", token, res)
+            err = _feed_failed(res)
+        if err:
+            self.feed_bad.add(token)
+            self.feed_error = f"Live feed refused ({len(self.feed_bad)} symbols): {err}"
+            if self.loop:
+                self.loop.call_soon_threadsafe(self._schedule_heal)
+        else:
+            self.feed_bad.discard(token)
+            if not self.feed_bad:
+                self.feed_error, self._heal_tries = "", 0
+
+    def _schedule_heal(self):
+        if self._healing or not self.feed_bad or time.time() - self._heal_at < FEED_HEAL_GAP:
+            return
+        self._healing, self._heal_at = True, time.time()
+        asyncio.create_task(self._heal_feed())
+
+    async def _heal_feed(self):
+        """The live feed refused our subscriptions while REST still works (charts then quietly fall back to polled
+        1m candles and no ticks are recorded). 1st try: a new client + websocket with the current token, which
+        resubscribes everything. If that is refused too: a fresh login (same auto-login policy as REST expiry)."""
+        try:
+            self._heal_tries += 1
+            fresh = self._heal_tries >= 2
+            log.warning("Breeze live feed refused %d symbols (%s); %s", len(self.feed_bad), self.feed_error,
+                        "logging in again" if fresh else "reconnecting the feed")
+            async with self._login_lock:
+                old, self.breeze, self.ws_ok = self.breeze, None, False
+                if old is not None:
+                    try:
+                        await asyncio.to_thread(old.ws_disconnect)
+                    except Exception as e:  # pragma: no cover
+                        log.debug("ws_disconnect: %s", e)
+                if fresh:
+                    try:
+                        await self._renew()
+                    except Exception as e:
+                        self.feed_error = f"Live feed refused the login and auto-login could not run ({e}); press Connect"
+            self.feed_bad.clear()
+            await self.client()                  # new client: resubscribes every token in self.subs
+            if self.feed_bad:
+                log.warning("Breeze live feed still refused after repair: %s", self.feed_error)
+                if self._heal_tries < 3 and self.loop:
+                    self.loop.call_later(FEED_HEAL_GAP + 1, self._schedule_heal)
+            else:
+                log.info("Breeze live feed restored (%d symbols)", len(self.subs))
+        except Exception as e:
+            log.warning("Breeze live feed repair failed: %s", e)
+            self.feed_error = self.feed_error or f"Live feed repair failed: {e}"
+        finally:
+            self._healing = False
 
     def _on_tick(self, t: dict):  # runs on the socketio thread
         tok = t.get("symbol") or (f"4.1!{t['stock_code']}" if t.get("stock_code") else None)
