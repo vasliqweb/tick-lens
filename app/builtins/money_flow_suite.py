@@ -1,5 +1,7 @@
 indicator("Money Flow Suite", overlay=False, precision=1)
-# PREMIUM (beta). Rupee money flow: value bought minus value sold, in Rs crore.
+# Context indicator (not premium, not a signal). Rupee money flow: value bought minus value sold, in Rs crore.
+# Research on 97 NIFTY days (scripts/research/money_flow/RULE1_RESULTS.md, DIVERGENCE_RESULTS.md): breakout
+# confirmation and flow divergence showed no edge; strong 30-min flow ~55%. Use it to describe the session.
 #  - Breeze NIFTY / NIFTY FUT: sum of the NIFTY 50 stocks' flow. Breeze stock: its own flow.
 #  - Minutes with raw ticks: side from bid/ask (quote rule, then tick rule) = Observed + classified.
 #  - Other minutes / other sources: candle close-location estimate (CMF-style) = Estimated.
